@@ -27,6 +27,19 @@ dashy status   # stage ledger + artifacts
 
 Content stages run through **locally-running opencode** (`opencode/muse-spark-1.3-contributor-free`) with parallel subagents (exam analyst, lecture authors, coverage auditor, image/video mappers) plus a blocking **audit → fixing-agent loop** that repeats until all checks pass. Extraction is poppler + LibreOffice + python; retrieval is local TF-IDF (vector upgrade later).
 
+## First run — bootstrap
+
+```bash
+dashy bootstrap        # checks everything, installs what's missing (with your OK)
+dashy bootstrap --yes  # non-interactive: auto-install opencode if absent
+```
+
+| Step | macOS | Windows |
+|---|---|---|
+| opencode binary | auto-installs via official script | manual install from opencode docs, then re-run (auto-detected) |
+| auth + model | launches `opencode auth login` if needed; confirms muse-spark model | same CLI flow |
+| Wispr Flow | detected in /Applications (dictation just works) | detected in install dirs; else link to download — read-aloud never needs it |
+
 ## Requirements
 
 macOS/Linux or **Windows 10/11** · Node.js 20+ · Python 3.10+ · poppler · LibreOffice (slides only) · local `opencode` with a free model.
