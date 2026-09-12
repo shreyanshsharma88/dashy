@@ -7,6 +7,7 @@ import { loadState, saveState } from "./state.mjs";
 
 export const SLASH = [
   { v: "/init", h: "guided setup wizard for this folder" },
+  { v: "/bootstrap", h: "auto-install opencode + Wispr check" },
   { v: "/scan", h: "list PDFs, handout + paper candidates" },
   { v: "/build", h: "full pipeline S0–S10" },
   { v: "/serve", h: "serve the built dashboard over http" },
@@ -50,6 +51,7 @@ export async function mainMenu() {
     message: "dashy — what next?",
     options: [
       { value: "build", label: "Build dashboard", hint: "full S0–S10 pipeline" },
+      { value: "bootstrap", label: "Bootstrap", hint: "install opencode + Wispr check" },
       { value: "serve", label: "Serve dashboard", hint: "http://localhost for videos" },
       { value: "status", label: "Status", hint: "ledger + artifacts" },
       { value: "add", label: "Add features", hint: "free-text spec patch" },

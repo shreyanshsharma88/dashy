@@ -73,7 +73,7 @@ dashboard/
 | Web search | opencode websearch + YouTube oEmbed verify + image downloader (license-filtered) | S6b enrichment; no invented URLs, no hotlinking |
 
 ## B2. CLI UX + user journey
-Commands: `dashy init` (wizard) · `dashy scan` · `dashy build [--resume]` · `dashy rebuild` (deterministic S7+S8+S9 only, no LLM redo) · `dashy serve [--port]` (auto-bumps if busy) · `dashy status` · `dashy add-features "..."` (free-text field appended to build spec).
+Commands: `dashy init` (wizard) · `dashy bootstrap [--yes]` (auto-install opencode, auth/model check, Wispr detection) · `dashy scan` · `dashy build [--resume]` · `dashy rebuild` (deterministic S7+S8+S9 only, no LLM redo) · `dashy serve [--port]` (auto-bumps if busy) · `dashy status` · `dashy add-features "..."` (free-text field appended to build spec).
 First-run journey:
 1. `$ dashy init` → banner → checks: node ✓, poppler ✗→install offer, opencode ✗→install+auth, Wispr ✗→"Install Wispr Flow first or voice-dictation fields won't have STT (read-aloud still works)" [warn, continue] .
 2. Scan `./` for PDFs → list found → ask: course handout? (optional file; skip allowed → proceeds with reduced context, flagged `confidence: limited`) → question papers? (optional; skip allowed → exam-pattern page becomes "syllabus-inferred", quizzes still built from PDFs) → **free-text "additional features" field** (appended verbatim to build spec + parsed for known toggles) → confirm plan → build.

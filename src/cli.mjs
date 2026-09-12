@@ -9,6 +9,7 @@ import { preflight } from "./preflight.mjs";
 import { scan } from "./scan.mjs";
 import { build, renderGaps } from "./stages.mjs";
 import { convertSlides } from "./extract.mjs";
+import { bootstrap } from "./bootstrap.mjs";
 import { buildData } from "./databuild.mjs";
 import { verify } from "./verify.mjs";
 import { serve } from "./serve.mjs";
@@ -114,6 +115,12 @@ program.command("build").description("full pipeline S0–S10").option("--fresh",
   try { await doBuild(root, {}, !!o.fresh); s.stop("done"); }
   catch (e) { s.stop("failed"); p.log.error(String(e.message || e).slice(0, 600)); }
 });
+program.command("bootstrap").description("auto-install opencode (+auth/model check) and Wispr guidance").option("--yes", "non-interactive: allow installs").option("--model <id>", "required model").action(async (o) => {
+  const rep = await bootstrap({ yes: !!o.yes, model: o.model },
+    (m) => p.log.info(m));
+  const show = (k, v) => p.log[v.ok ? "success" : "error"](`${k}: ${v.ok ? "OK" : "ACTION NEEDED"}${v.detail ? " — " + v.detail : ""}${v.fix ? " — " + v.fix : ""}`);
+  show("opencode", rep.opencode); show("auth", rep.auth || { ok: false }); show("model", rep.model || { ok: false }); show("wispr", rep.wispr);
+});
 program.command("rebuild").description("deterministic rebuild: restore pdf/, re-render gaps, S7+S8+S9 (no LLM content redo)").action(async (o, c) => {
   const root = rootOf(c.parent.opts());
   const st = loadState(root);
@@ -169,6 +176,10 @@ program.action(async () => {
       if (m === "build") {
         const w = await wizard(root);
         if (w) await doBuild(root, {}, false);
+      } else if (m === "bootstrap") {
+        const rep = await bootstrap({ yes: false }, (x) => p.log.info(x));
+        const show = (k, v) => p.log[v.ok ? "success" : "error"](`${k}: ${v.ok ? "OK" : "ACTION NEEDED"}${v.detail ? " — " + v.detail : ""}${v.fix ? " — " + v.fix : ""}`);
+        show("opencode", rep.opencode); show("auth", rep.auth || { ok: false }); show("model", rep.model || { ok: false }); show("wispr", rep.wispr);
       } else if (m === "serve") {
         const { url } = await serve(root, 8000);
         p.log.success(url + " (Ctrl+C to stop)");
