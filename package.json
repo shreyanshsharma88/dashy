@@ -1,0 +1,13 @@
+{
+  "name": "dashy",
+  "version": "0.1.0",
+  "description": "CLI that builds ACI-style study dashboards from a folder of PDFs via local opencode",
+  "type": "module",
+  "bin": { "dashy": "bin/dashy" },
+  "scripts": { "smoke": "node --check bin/dashy && node --check src/cli.mjs" },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "@clack/prompts": "^0.8.2"
+  },
+  "engines": { "node": ">=20" }
+}

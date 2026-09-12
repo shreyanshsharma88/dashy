@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZG557 Mid-Sem Study Dashboard</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="read-progress" aria-hidden="true"><span></span></div>
+<header class="topbar">
+  <div class="brand">ZG557 <span>Mid-Sem Dashboard</span></div>
+  <input id="search" type="search" placeholder="Search all lectures — e.g. admissible, ρ, roulette…  ( / )" autocomplete="off" aria-label="Search lectures">
+  <div class="top-actions">
+    <button id="btn-font-dec" title="Smaller text">A−</button>
+    <button id="btn-font-inc" title="Larger text">A+</button>
+    <button id="btn-lh" title="Cycle line height">LH</button>
+    <button id="btn-theme" title="Theme: dark / sepia / light">◐</button>
+    <button id="btn-focus" title="Focus mode (F)">⛶</button>
+    <button id="btn-pdf" title="Reference PDF window">📄</button>
+    <button id="btn-timer" title="Pomodoro timer">⏱</button>
+    <button id="btn-keys" title="Keyboard shortcuts (?)">?</button>
+  </div>
+  <div class="progress-wrap"><div id="progress-bar"></div><span id="progress-label"></span></div>
+</header>
+<div id="keys-pop" hidden>
+  <b>Shortcuts</b>
+  <div><kbd>←</kbd><kbd>→</kbd> prev / next lecture</div>
+  <div><kbd>F</kbd> focus mode &nbsp; <kbd>/</kbd> search &nbsp; <kbd>Esc</kbd> close</div>
+</div>
+<div id="search-results" hidden></div>
+<div class="layout">
+  <aside id="sidebar">
+    <nav id="nav" aria-label="Dashboard pages"></nav>
+    <h3>Studied</h3>
+    <div id="studied-list"></div>
+    <h3>Weak list <span id="weak-count"></span></h3>
+    <div id="weak-list" class="weak-list"></div>
+  </aside>
+  <div class="content-wrap">
+    <main id="view"></main>
+    <aside id="toc" aria-label="On this page"><b>On this page</b><div id="toc-list"></div></aside>
+  </div>
+</div>
+<nav id="dots" aria-label="Lecture position"></nav>
+<aside id="pdfwin" hidden aria-label="Reference PDF">
+  <div id="pdf-grip" title="Drag to resize"></div>
+  <div class="pdf-head"><b id="pdf-title">Reference PDF</b>
+    <span id="pdf-page" class="src"></span>
+    <button id="pdf-open" title="Open full PDF in new tab">↗</button>
+    <button id="pdf-hide" title="Hide">×</button>
+  </div>
+  <iframe id="pdf-frame" title="Reference PDF"></iframe>
+  <div class="pdf-fallback src">PDF not showing? <a id="pdf-link" href="#" target="_blank" rel="noopener">open it directly</a>.</div>
+</aside>
+<div id="timer" hidden>
+  <div class="tm-head"><b id="tm-mode">Focus 25</b><button id="tm-hide" title="Hide timer">×</button></div>
+  <div id="tm-time">25:00</div>
+  <div class="tm-row">
+    <button id="tm-start">Start</button>
+    <button id="tm-reset" class="ghost">Reset</button>
+  </div>
+  <div class="tm-row">
+    <button id="tm-m25" class="ghost on">25/5</button>
+    <button id="tm-m50" class="ghost">50/10</button>
+  </div>
+  <div id="tm-count" class="src"></div>
+</div>
+<script src="app-data.js"></script>
+<script src="media.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
