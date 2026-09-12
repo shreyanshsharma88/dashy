@@ -2,10 +2,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
+import { sysTool } from "./platform.mjs";
 
 function pdfPages(f) {
-  return new Promise((resolve) => {
-    execFile("pdfinfo", [f], { timeout: 15000, stdio: ["ignore", "pipe", "pipe"] }, (err, out) => {
+  return new Promise(async (resolve) => {
+    let bin = "pdfinfo";
+    try { bin = await sysTool("pdfinfo"); } catch {}
+    execFile(bin, [f], { timeout: 15000, stdio: ["ignore", "pipe", "pipe"] }, (err, out) => {
       const m = String(out || "").match(/Pages:\s+(\d+)/);
       resolve(m ? Number(m[1]) : null);
     });

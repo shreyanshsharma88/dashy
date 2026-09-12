@@ -56,8 +56,13 @@ export function installHint(pkg) {
   };
   return table[pkg] || ("install " + pkg);
 }
-// A working python launcher as argv array, e.g. ["py","-3"] on Windows.
-// Returns null when no python is available at all.
+// Resolved external tools with per-process cache. Falls back to the bare name
+// (PATH lookup at spawn — identical to historic behavior on POSIX).
+const _cache = {};
+export async function sysTool(name, winPaths) {
+  if (!_cache[name]) _cache[name] = (await whichBin(name, winPaths)) || name;
+  return _cache[name];
+}
 export async function pythonLauncher() {
   const cands = isWin ? [["py", "-3"], ["python"], ["python3"]] : [["python3"], ["python"]];
   for (const [b, ...rest] of cands) {
