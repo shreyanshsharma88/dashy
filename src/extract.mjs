@@ -7,9 +7,22 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+import { whichBin, venvPython, venvPip, dashyVenvDir, WIN_PROGRAMS, pythonLauncher, installHint } from "./platform.mjs";
+// Resolved external tools (bare names = PATH lookup, identical to old behavior on POSIX).
+const TOOLS = {};
+async function tool(name, winPaths) {
+  if (!TOOLS[name]) TOOLS[name] = (await whichBin(name, winPaths)) || name;
+  return TOOLS[name];
+}
+async function resolveTools() {
+  await Promise.all([
+    tool("pdftotext"), tool("pdfimages"), tool("pdftoppm"), tool("pdfinfo"),
+    tool("soffice", WIN_PROGRAMS),
+  ]);
+}
 function dashyPython() {
   if (process.env.DASHY_PY && fs.existsSync(process.env.DASHY_PY)) return process.env.DASHY_PY;
-  const v = path.join(os.homedir(), ".dashy-tools", "bin", "python");
+  const v = venvPython(dashyVenvDir());
   if (fs.existsSync(v)) return v;
   return "python3";
 }
@@ -18,22 +31,24 @@ let _pptxPy = null; // cached resolved python with pptx (or "" if unavailable)
 const PY_IMPORTS = { "python-pptx": "pptx", pillow: "PIL", "python-docx": "docx" };
 async function ensurePy(pkgs, onEvent = () => {}) {
   const mods = pkgs.map((p) => PY_IMPORTS[p] || p);
-  const cands = [process.env.DASHY_PY, path.join(os.homedir(), ".dashy-tools", "bin", "python"), "python3"].filter(Boolean);
+  const cands = [process.env.DASHY_PY, venvPython(dashyVenvDir()), "python3", "python"].filter(Boolean);
   for (const b of cands) {
     if (!b || !fs.existsSync(b)) continue;
     const r = await run(b, ["-c", mods.map((m) => "import " + m).join("; ")]);
     if (r.ok) return b;
   }
-  onEvent("py-bootstrap", "creating ~/.dashy-tools venv + installing " + pkgs.join(" ") + " (one-time)");
-  const venv = path.join(os.homedir(), ".dashy-tools");
-  let r = await run("python3", ["-m", "venv", venv], 120000);
+  onEvent("py-bootstrap", "creating venv + installing " + pkgs.join(" ") + " (one-time)");
+  const launcher = await pythonLauncher();
+  if (!launcher) return null;
+  const venv = dashyVenvDir();
+  let r = await run(launcher[0], [...launcher.slice(1), "-m", "venv", venv], 120000);
   if (!r.ok) return null;
-  r = await run(path.join(venv, "bin", "pip"), ["install", "--quiet", ...pkgs], 300000);
-  const py = path.join(venv, "bin", "python");
-  const mods2 = pkgs.map((p) => PY_IMPORTS[p] || p);
-  const ok = r.ok && fs.existsSync(py) && (await run(py, ["-c", mods2.map((m) => "import " + m).join("; ")])).ok;
-  onEvent("py-bootstrap", ok.ok ? "ready: " + py : "failed — set DASHY_PY to a python with " + pkgs.join(" "));
-  return ok.ok ? py : null;
+  r = await run(venvPip(venv), ["install", "--quiet", ...pkgs], 300000);
+  const py = venvPython(venv);
+  const vok = pkgs.map((p) => PY_IMPORTS[p] || p);
+  const ok = r.ok && fs.existsSync(py) && (await run(py, ["-c", vok.map((m) => "import " + m).join("; ")])).ok;
+  onEvent("py-bootstrap", ok ? "ready: " + py : "failed — set DASHY_PY to a python with " + pkgs.join(" "));
+  return ok ? py : null;
 }
 async function ensurePptx(onEvent = () => {}) {
   if (_pptxPy !== null) return _pptxPy || null;
@@ -59,7 +74,7 @@ export async function convertSlides(root, slides, onEvent = () => {}) {
     const stem = String(p.file).replace(/\.(pdf|pptx?)$/i, "");
     const converted = path.join(pdfDir, stem + ".pdf");
     if (fs.existsSync(converted)) { map[p.file] = path.join("pdf", stem + ".pdf"); onEvent("converted-cached", p.file); continue; }
-    const conv = await run("soffice", ["--headless", "--convert-to", "pdf", "--outdir", pdfDir, path.join(root, p.file)]);
+    const conv = await run(await tool("soffice", WIN_PROGRAMS), ["--headless", "--convert-to", "pdf", "--outdir", pdfDir, path.join(root, p.file)]);
     if (conv.ok && fs.existsSync(converted)) { map[p.file] = path.join("pdf", stem + ".pdf"); onEvent("converted", p.file); }
     else { map[p.file] = null; onEvent("convert-failed", p.file, conv.err); }
   }
@@ -91,7 +106,7 @@ export async function extract(root, manifest, onEvent = () => {}) {
       const converted = path.join(root, rel);
       onEvent("converted", p.file, rel);
       const txt = path.join(out, stem + ".txt");
-      const r = await run("pdftotext", ["-layout", converted, txt]);
+      const r = await run(await tool("pdftotext"), ["-layout", converted, txt]);
       let notes = "";
       const npy = await ensurePptx(onEvent);
       if (npy) {
@@ -108,13 +123,13 @@ export async function extract(root, manifest, onEvent = () => {}) {
       } catch {}
       const info = { file: p.file, converted: "pdf/" + stem + ".pdf", lines, slides: null, ok: r.ok && lines > 5 };
       try {
-        const pg = await run("pdfinfo", [converted]);
+        const pg = await run(await tool("pdfinfo"), [converted]);
         const m = pg.out.match(/Pages:\s+(\d+)/);
         if (m) info.slides = info.pages = Number(m[1]);
       } catch {}
       report.texts.push(info);
       onEvent("text", p.file, lines);
-      await run("pdfimages", ["-png", converted, path.join(img, stem + "-img")]);
+      await run(await tool("pdfimages"), ["-png", converted, path.join(img, stem + "-img")]);
       try { report.images += fs.readdirSync(img).filter((f) => f.startsWith(stem + "-img")).length; } catch {}
       onEvent("images", p.file, report.images);
       continue;
@@ -125,7 +140,7 @@ export async function extract(root, manifest, onEvent = () => {}) {
       const fpy = await ensurePptx(onEvent);
       if (!fpy) {
         report.texts.push({ file: p.file, lines: 0, ok: false,
-          error: "no soffice and no python-pptx — brew install --cask libreoffice, or set DASHY_PY" });
+          error: "no soffice and no python-pptx — " + installHint("libreoffice") + ", or set DASHY_PY" });
         onEvent("text", p.file, 0);
         continue;
       }
@@ -142,7 +157,7 @@ export async function extract(root, manifest, onEvent = () => {}) {
       continue;
     }
     const txt = path.join(out, stem + ".txt");
-    const r = await run("pdftotext", ["-layout", path.join(root, p.file), txt]);
+    const r = await run(await tool("pdftotext"), ["-layout", path.join(root, p.file), txt]);
     let lines = 0;
     try {
       const cleaned = fs.readFileSync(txt, "utf8").replace(/\0/g, "");
@@ -151,7 +166,7 @@ export async function extract(root, manifest, onEvent = () => {}) {
     } catch {}
     report.texts.push({ file: p.file, lines, ok: r.ok });
     onEvent("text", p.file, lines);
-    const im = await run("pdfimages", ["-png", path.join(root, p.file), path.join(img, stem + "-img")]);
+    const im = await run(await tool("pdfimages"), ["-png", path.join(root, p.file), path.join(img, stem + "-img")]);
     if (im.ok) { try { report.images += fs.readdirSync(img).filter((f) => f.startsWith(stem + "-img")).length; } catch {} }
     onEvent("images", p.file, report.images);
   }
@@ -168,7 +183,7 @@ export async function extract(root, manifest, onEvent = () => {}) {
         const r = await run(dpy, [path.join(HERE, "..", "tools", "docx_extract.py"), path.join(root, d.file), txt]);
         ok = r.ok && fs.existsSync(txt);
       } else if (/\.doc$/i.test(d.file)) {
-        const r = await run("soffice", ["--headless", "--convert-to", "txt:Text", "--outdir", out, path.join(root, d.file)]);
+        const r = await run(await tool("soffice", WIN_PROGRAMS), ["--headless", "--convert-to", "txt:Text", "--outdir", out, path.join(root, d.file)]);
         ok = r.ok;
         try { fs.renameSync(path.join(out, stem + ".txt"), txt); } catch {}
       } else {
@@ -196,7 +211,7 @@ export async function renderPages(root, pdfFile, pages, prefix, dpi = 90) {
   }
   const made = [];
   for (const [f, l] of groups) {
-    const r = await run("pdftoppm", ["-png", "-r", String(dpi), "-f", String(f), "-l", String(l),
+    const r = await run(await tool("pdftoppm"), ["-png", "-r", String(dpi), "-f", String(f), "-l", String(l),
       path.join(root, pdfFile), path.join(img, prefix)]);
     if (r.ok) {
       try {

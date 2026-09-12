@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { whichBin, opencodeCandidates, installHint, WIN_PROGRAMS } from "./platform.mjs";
 
 function sh(bin, args, timeout = 15000) {
   return new Promise((resolve) => {
@@ -12,10 +13,10 @@ function sh(bin, args, timeout = 15000) {
   });
 }
 async function opencodeBin() {
-  const direct = await sh("opencode", ["--version"]);
-  if (direct.ok) return "opencode";
-  const home = path.join(os.homedir(), ".opencode", "bin", "opencode");
-  if (fs.existsSync(home)) { const r = await sh(home, ["--version"]); if (r.ok) return home; }
+  for (const c of opencodeCandidates()) {
+    const r = await sh(c, ["--version"]);
+    if (r.ok) return c;
+  }
   return null;
 }
 export async function preflight(wantModel) {
@@ -23,16 +24,16 @@ export async function preflight(wantModel) {
   const put = (name, ok, detail = "") => { report.checks.push({ name, ok, detail }); if (!ok) report.ok = false; };
   put("node >= 20", Number(process.versions.node.split(".")[0]) >= 20, process.versions.node);
   for (const t of ["pdftotext", "pdfimages", "pdftoppm", "pdfinfo"]) {
-    const r = await sh("which", [t]);
-    put("poppler:" + t, r.ok, r.ok ? "" : "install: brew install poppler / apt install poppler-utils");
+    const found = await whichBin(t);
+    put("poppler:" + t, !!found, found || ("install: " + installHint("poppler")));
   }
   {
-    const r = await sh("which", ["soffice"]);
+    const found = await whichBin("soffice", WIN_PROGRAMS);
     put("libreoffice (pptx→pdf into pdf/)", true,
-      r.ok ? "soffice found" : "advisory: only needed for slide decks — install via brew install --cask libreoffice (python-pptx fallback otherwise)");
+      found ? "soffice found" : "advisory: only needed for slide decks — " + installHint("libreoffice") + " (python-pptx fallback otherwise)");
   }
   const bin = await opencodeBin();
-  put("opencode binary", !!bin, bin || "install: curl -fsSL https://opencode.ai/install | bash");
+  put("opencode binary", !!bin, bin || ("install: " + installHint("opencode")));
   let model = wantModel || "opencode/muse-spark-1.3-contributor-free", modelOk = false, modelsOut = "";
   if (bin) {
     const r = await sh(bin, ["models"]);

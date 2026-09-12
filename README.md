@@ -27,6 +27,18 @@ dashy status   # stage ledger + artifacts
 
 Content stages run through **locally-running opencode** (`opencode/muse-spark-1.3-contributor-free`) with parallel subagents (exam analyst, lecture authors, coverage auditor, image/video mappers) plus a blocking **audit → fixing-agent loop** that repeats until all checks pass. Extraction is poppler + LibreOffice + python; retrieval is local TF-IDF (vector upgrade later).
 
+## Requirements
+
+macOS/Linux or **Windows 10/11** · Node.js 20+ · Python 3.10+ · poppler · LibreOffice (slides only) · local `opencode` with a free model.
+
+| Tool | macOS | Windows |
+|---|---|---|
+| poppler | `brew install poppler` | `winget install poppler` |
+| LibreOffice | `brew install --cask libreoffice` | `winget install TheDocumentFoundation.LibreOffice` |
+| Python | `brew install python` | `winget install Python.Python.3.12` |
+
+`dashy init` preflights all of this per-OS and tells you exactly what's missing. Python helpers auto-install into `~/.dashy-tools` on first use (override with `DASHY_PY`).
+
 ## Status
 
 v1 = personal usecase, single-subject builds verified end-to-end on fixtures. v2 = public release for learning anything efficiently.

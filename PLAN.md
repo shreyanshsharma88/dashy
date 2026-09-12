@@ -62,6 +62,7 @@ dashboard/
 | Layer | Choice | Why (+ fallback) |
 |---|---|---|
 | Runtime | **Node.js 20+** | Same runtime as opencode; single toolchain. Fallback: system node via `fnm` auto-install |
+| Platform | **macOS/Linux + Windows** (`src/platform.mjs`) | All external tools resolved per-OS (PATH + well-known install dirs); `Scripts\` vs `bin/` venv layout; `py -3` launcher; winget/choco hints; POSIX paths byte-identical |
 | CLI framework | **Ink (React-for-CLI) full-screen TUI** + `commander` + `@clack/prompts` | Claude-Code-like interactive UI (B2.5); slash commands mean zero memorization. Fallback: @clack wizard without Ink |
 | Local agent engine | **`opencode run` (headless)**, model `opencode/muse-spark-1.3-contributor-free` | Exact engine requested. Preflight: `opencode --version`; if missing → install (`curl -fsSL https://opencode.ai/install \| bash`, verify, fallback: npm `opencode-ai`), then `opencode auth login` check with guided setup |
 | PDF extraction | `pdftotext -layout` / `pdfimages` / `pdftoppm` (poppler) | Byte-faithful, same as ACI build. Fallback: `pdfjs` node lib; if poppler missing → `brew/apt install poppler` prompt |
