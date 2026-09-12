@@ -42,7 +42,9 @@ dashy bootstrap --yes  # non-interactive: auto-install opencode if absent
 
 ## Requirements
 
-macOS/Linux or **Windows 10/11** · Node.js 20+ · Python 3.10+ · poppler · LibreOffice (slides only) · local `opencode` with a free model.
+macOS/Linux or **Windows 10/11 64-bit** · Node.js 20+ · Python 3.10+ · poppler · LibreOffice (slides only) · local `opencode` with a free model.
+
+Pure JavaScript throughout (no native modules), so anything Node 20+ runs on — x64 Windows included, ARM64 by the same token. 32-bit Windows is out (modern Node itself requires 64-bit).
 
 | Tool | macOS | Windows |
 |---|---|---|
