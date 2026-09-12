@@ -7,7 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { preflight } from "./preflight.mjs";
 import { scan } from "./scan.mjs";
-import { build } from "./stages.mjs";
+import { build, renderGaps } from "./stages.mjs";
+import { convertSlides } from "./extract.mjs";
 import { buildData } from "./databuild.mjs";
 import { verify } from "./verify.mjs";
 import { serve } from "./serve.mjs";
@@ -30,9 +31,22 @@ function cpTree(src, dst) {
 async function assemble(root) {
   // S8: golden shell + fonts + curated diagrams into dist/
   const dist = path.join(root, "dist");
+  fs.mkdirSync(path.join(dist, "assets", "diagrams"), { recursive: true });
   for (const f of ["index.html", "styles.css", "app.js"])
     fs.copyFileSync(path.join(GOLDEN, f), path.join(dist, f));
   cpTree(path.join(GOLDEN, "assets", "fonts"), path.join(dist, "assets", "fonts"));
+  // ship readable PDFs alongside (PDF window src = pdf/<stem>.pdf, works over http AND file://)
+  const pdfDst = path.join(dist, "pdf");
+  fs.mkdirSync(pdfDst, { recursive: true });
+  try {
+    const st2 = loadState(root);
+    const listed = ((st2.manifest || {}).pdfs || []).map((p) => p.file.replace(/\.(pdf|pptx?)$/i, "") + ".pdf");
+    const names = new Set([...listed, ...fs.readdirSync(path.join(root, "pdf")).filter((f) => f.endsWith(".pdf"))]);
+    names.forEach((n) => {
+      const src = fs.existsSync(path.join(root, "pdf", n)) ? path.join(root, "pdf", n) : path.join(root, n);
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(pdfDst, n));
+    });
+  } catch {}
   const imgSrc = path.join(root, ".dashy", "img");
   const imgDst = path.join(dist, "assets", "diagrams");
   fs.mkdirSync(imgDst, { recursive: true });
@@ -100,10 +114,30 @@ program.command("build").description("full pipeline S0–S10").option("--fresh",
   try { await doBuild(root, {}, !!o.fresh); s.stop("done"); }
   catch (e) { s.stop("failed"); p.log.error(String(e.message || e).slice(0, 600)); }
 });
-program.command("serve").description("serve dist/ over http").option("--port <n>", "port", "8000").action(async (o, c) => {
+program.command("rebuild").description("deterministic rebuild: restore pdf/, re-render gaps, S7+S8+S9 (no LLM content redo)").action(async (o, c) => {
   const root = rootOf(c.parent.opts());
-  await serve(root, Number(o.port));
-  p.log.success(`http://localhost:${o.port}/`);
+  const st = loadState(root);
+  if (!st.manifest) { p.log.error("No manifest — run `dashy build` first."); return; }
+  const s = p.spinner(); s.start("dashy rebuild");
+  try {
+    const slides = (st.manifest.pdfs || []).filter((x) => x.kind === "slides");
+    if (slides.length) await convertSlides(root, slides, (k, f) => p.log.info(`[pdf] ${k} ${f}`));
+    let mm = {};
+    try { mm = JSON.parse(fs.readFileSync(path.join(root, ".dashy", "media-map.json"), "utf8")); } catch {}
+    await renderGaps(root, mm, (m) => p.log.info("[gaps] " + m));
+    const r = await buildData(root, st.manifest, st.spec || {});
+    p.log.info(`S7: ${r.lectures} lectures, ${r.quizzes} quizzes`);
+    await assemble(root);
+    const oc = { bin: st.stages.S0?.bin || "opencode", model: st.stages.S0?.model };
+    const v = await auditLoop(root, st.manifest, oc);
+    s.stop(v.pass ? "rebuild clean" : "rebuild blocked — see defects above");
+  } catch (e) { s.stop("failed"); p.log.error(String(e.message || e).slice(0, 500)); }
+});
+program.command("serve").description("serve dist/ over http (auto-bumps port if busy)").option("--port <n>", "port", "8000").action(async (o, c) => {
+  const root = rootOf(c.parent.opts());
+  const { url, port } = await serve(root, Number(o.port));
+  if (Number(o.port) !== port) p.log.warn(`Port ${o.port} was busy — serving on ${port} instead.`);
+  p.log.success(url);
   p.log.info("Ctrl+C to stop. Videos need http (not file://).");
 });
 program.command("status").description("ledger + artifacts").action(async (o, c) => {
@@ -136,8 +170,8 @@ program.action(async () => {
         const w = await wizard(root);
         if (w) await doBuild(root, {}, false);
       } else if (m === "serve") {
-        await serve(root, 8000);
-        p.log.success("http://localhost:8000/ (Ctrl+C to stop)");
+        const { url } = await serve(root, 8000);
+        p.log.success(url + " (Ctrl+C to stop)");
       } else if (m === "status") {
         p.log.info(JSON.stringify(loadState(root).stages, null, 1).slice(0, 1500));
       } else if (m === "add") {

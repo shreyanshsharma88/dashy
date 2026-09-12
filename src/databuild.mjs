@@ -89,11 +89,23 @@ function topicFields(body) {
   if (!f.video) { const m = body.match(/TODO:\s*search\s+"([^"]+)"/); if (m) f.video = `TODO: search "${m[1]}"`; }
   return f;
 }
+function secBody(md, title) {
+  // section body without regex end-anchor pitfalls (JS has no \Z)
+  const lines = String(md || "").split("\n");
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^##\s+/.test(lines[i])) {
+      if (start >= 0) return lines.slice(start, i).join("\n");
+      if (lines[i].replace(/^##\s+/, "").trim().toLowerCase().startsWith(title.toLowerCase())) start = i + 1;
+    }
+  }
+  return start >= 0 ? lines.slice(start).join("\n") : "";
+}
 function parseQuizzes(md) {
-  const m = md.match(/^## Self-check[\s\S]*?(?=^## \S|\Z)/m);
-  if (!m) return [];
+  const body = secBody(md, "self-check");
+  if (!body) return [];
   const out = [];
-  const lines = m[0].split("\n");
+  const lines = body.split("\n");
   let cur = null;
   const push = () => { if (cur && cur.q) out.push(cur); cur = null; };
   for (const ln0 of lines) {
@@ -123,17 +135,17 @@ function parseQuizzes(md) {
   }));
 }
 function parseFlashcards(md) {
-  const m = md.match(/^## Flashcards[\s\S]*?(?=^## \S|\Z)/m);
-  if (!m) return [];
-  return m[0].split("\n").map((l) => l.trim().match(/^-\s*(.+?)\s*>>\s*(.+)$/))
+  const body = secBody(md, "flashcards");
+  if (!body) return [];
+  return body.split("\n").map((l) => l.trim().match(/^-\s*(.+?)\s*>>\s*(.+)$/))
     .filter(Boolean).map((x) => ({ front: x[1].trim(), back: x[2].trim() })).slice(0, 8);
 }
 function parseFormulas(md) {
-  const m = md.match(/^## Formulas & Algorithms[\s\S]*?(?=^## \S|\Z)/m);
-  if (!m) return { formulas: [], algos: [] };
+  const fbody = secBody(md, "formulas");
+  if (!fbody) return { formulas: [], algos: [] };
   const formulas = [], algos = [];
   let inAlgos = false;
-  for (const ln0 of m[0].split("\n")) {
+  for (const ln0 of fbody.split("\n")) {
     const ln = ln0.trim();
     if (/^\**Algorithms/i.test(ln)) { inAlgos = true; continue; }
     if (/^\**Formulas/i.test(ln)) { inAlgos = false; continue; }
@@ -166,7 +178,7 @@ function cheatHtml(groups) {
 }
 export async function buildData(root, manifest, spec) {
   const cdir = path.join(root, ".dashy", "content");
-  const mds = fs.readdirSync(cdir).filter((f) => /^L\d+\.md$/.test(f)).sort();
+  const mds = fs.readdirSync(cdir).filter((f) => /^L\d+.*\.md$/i.test(f) && !/^exam-/i.test(f)).sort();
   const lectures = [];
   const cheatGroups = [];
   for (const [li, f] of mds.entries()) {
@@ -182,9 +194,9 @@ export async function buildData(root, manifest, spec) {
     const quizzes = parseQuizzes(md);
     const flashcards = parseFlashcards(md);
     // prereqs: first bullets/table rows of Prerequisites section
-    const pm = md.match(/^## Prerequisites[\s\S]*?(?=^## \S|\Z)/m);
     const prereqs = [];
-    if (pm) for (const ln of pm[0].split("\n")) {
+    const pbody = secBody(md, "prerequisites");
+    if (pbody) for (const ln of pbody.split("\n")) {
       const s = ln.trim();
       const b = s.match(/^[-*]\s+(.+)$/) || s.match(/^\d+[.)]\s+(.+)$/);
       if (b) prereqs.push({ concept: b[1].slice(0, 80), refresher: b[1].slice(0, 300) });
@@ -208,6 +220,20 @@ export async function buildData(root, manifest, spec) {
   // media.js from media-map.json + diagram files
   let mm = { images: {}, videos: {} };
   try { mm = JSON.parse(fs.readFileSync(path.join(root, ".dashy", "media-map.json"), "utf8")); } catch {}
+  // normalize to golden short keys: images {f, c}, videos {id, t, ch} (originals kept)
+  const normImages = {};
+  for (const [k, arr] of Object.entries(mm.images || {})) {
+    normImages[k] = (arr || []).map((x) => ({ f: x.file || x.f, c: x.caption || x.c, ...x }));
+  }
+  const normVideos = {};
+  // agent emits videos as an ARRAY with .topic fields (ACI hand format was a map — accept both)
+  const vlist = Array.isArray(mm.videos) ? mm.videos
+    : Object.entries(mm.videos || {}).map(([k, v]) => ({ ...(v || {}), _k: k }));
+  for (const v of vlist) {
+    const key = v.topic || v._k;
+    if (!key || !(v.videoId || v.id)) continue;
+    normVideos[key] = { id: v.videoId || v.id, t: v.title || v.t, ch: v.channel || v.ch, ...v };
+  }
   const dimg = path.join(root, "dist", "assets", "diagrams");
   const mediaFiles = fs.existsSync(dimg) ? fs.readdirSync(dimg).filter((f) => f.endsWith(".png")).sort() : [];
   const newDiagrams = mediaFiles.map((f) => {
@@ -215,10 +241,12 @@ export async function buildData(root, manifest, spec) {
     return { file: f, lecture: m ? m[1] : "UNK", kind: "page-render",
       caption: m ? `${m[1]} p.${+m[2]} (PDF screenshot)` : f };
   });
-  const mediaJs = "window.ACI_MEDIA = " + JSON.stringify({ images: mm.images || {}, videos: mm.videos || {}, newDiagrams }, null, 0) + ";";
+  const mediaJs = "window.ACI_MEDIA = " + JSON.stringify({ images: normImages, videos: normVideos, newDiagrams }, null, 0) + ";";
   const dataJs = "window.ACI_DATA = " + JSON.stringify({ lectures,
     examPatternHtml: examHtml(ep), cheatSheetHtml: cheatHtml(cheatGroups) }, null, 0) + ";";
   const dist = path.join(root, "dist");
+  fs.mkdirSync(dist, { recursive: true });
+  fs.mkdirSync(path.join(dist, "assets", "diagrams"), { recursive: true });
   fs.writeFileSync(path.join(dist, "app-data.js"), dataJs);
   fs.writeFileSync(path.join(dist, "media.js"), mediaJs);
   return { lectures: lectures.length, quizzes: lectures.reduce((a, l) => a + l.quizzes.length, 0) };

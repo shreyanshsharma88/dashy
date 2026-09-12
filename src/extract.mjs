@@ -48,9 +48,28 @@ function run(bin, args, timeout = 120000, errHint = "") {
         err: (String(stderr || "").slice(0, 300) || errHint) }));
   });
 }
+// Convert slide decks to PDF under <root>/pdf/ (idempotent: skips existing).
+// Returns { "<file>": "pdf/<stem>.pdf" | null }. Self-healing: any stage can
+// call this to restore converted PDFs (e.g. user deleted pdf/).
+export async function convertSlides(root, slides, onEvent = () => {}) {
+  const pdfDir = path.join(root, "pdf");
+  fs.mkdirSync(pdfDir, { recursive: true });
+  const map = {};
+  for (const p of slides) {
+    const stem = String(p.file).replace(/\.(pdf|pptx?)$/i, "");
+    const converted = path.join(pdfDir, stem + ".pdf");
+    if (fs.existsSync(converted)) { map[p.file] = path.join("pdf", stem + ".pdf"); onEvent("converted-cached", p.file); continue; }
+    const conv = await run("soffice", ["--headless", "--convert-to", "pdf", "--outdir", pdfDir, path.join(root, p.file)]);
+    if (conv.ok && fs.existsSync(converted)) { map[p.file] = path.join("pdf", stem + ".pdf"); onEvent("converted", p.file); }
+    else { map[p.file] = null; onEvent("convert-failed", p.file, conv.err); }
+  }
+  return map;
+}
 export async function extract(root, manifest, onEvent = () => {}) {
   const out = path.join(root, ".dashy", "txt");
   const img = path.join(root, ".dashy", "img");
+  fs.mkdirSync(out, { recursive: true });
+  fs.mkdirSync(img, { recursive: true });
   fs.mkdirSync(out, { recursive: true });
   fs.mkdirSync(img, { recursive: true });
   const report = { texts: [], images: 0 };
@@ -59,21 +78,18 @@ export async function extract(root, manifest, onEvent = () => {}) {
     if (p.skipped) { report.texts.push({ file: p.file, lines: 0, ok: false, skipped: p.skipped }); continue; }
     const stem = stemOf(p.file);
     if (p.kind === "slides") {
-      // SLIDES: convert to PDF into <root>/pdf/ (LibreOffice), then use the PDF.
-      // Speaker notes (lost in conversion) are appended from python-pptx.
       const stem = stemOf(p.file);
-      const pdfDir = path.join(root, "pdf");
-      fs.mkdirSync(pdfDir, { recursive: true });
-      const converted = path.join(pdfDir, stem + ".pdf");
-      const conv = await run("soffice", ["--headless", "--convert-to", "pdf", "--outdir", pdfDir, path.join(root, p.file)]);
-      if (!conv.ok || !fs.existsSync(converted)) {
+      const convMap = await convertSlides(root, [p], onEvent);
+      const rel = convMap[p.file];
+      if (!rel) {
         report.texts.push({ file: p.file, lines: 0, ok: false, fallback: "python-pptx",
-          error: "soffice convert failed (install LibreOffice): " + conv.err });
+          error: "soffice convert failed (install LibreOffice)" });
         onEvent("text", p.file, 0);
         if (!/\.pptx$/i.test(p.file)) continue; // legacy .ppt has no python fallback
         // fall through to the python-pptx path below
       } else {
-      onEvent("converted", p.file, "pdf/" + stem + ".pdf");
+      const converted = path.join(root, rel);
+      onEvent("converted", p.file, rel);
       const txt = path.join(out, stem + ".txt");
       const r = await run("pdftotext", ["-layout", converted, txt]);
       let notes = "";
@@ -85,7 +101,8 @@ export async function extract(root, manifest, onEvent = () => {}) {
       } else onEvent("notes", p.file, "skipped (no python-pptx)");
       let lines = 0;
       try {
-        let t = fs.readFileSync(txt, "utf8");
+        let t = fs.readFileSync(txt, "utf8").replace(/\0/g, "");
+        fs.writeFileSync(txt, t);
         if (notes) { t += "\n\n--- SPEAKER NOTES ---\n" + notes + "\n"; fs.writeFileSync(txt, t); }
         lines = t.split("\n").length;
       } catch {}
@@ -127,7 +144,11 @@ export async function extract(root, manifest, onEvent = () => {}) {
     const txt = path.join(out, stem + ".txt");
     const r = await run("pdftotext", ["-layout", path.join(root, p.file), txt]);
     let lines = 0;
-    try { lines = fs.readFileSync(txt, "utf8").split("\n").length; } catch {}
+    try {
+      const cleaned = fs.readFileSync(txt, "utf8").replace(/\0/g, "");
+      fs.writeFileSync(txt, cleaned);
+      lines = cleaned.split("\n").length;
+    } catch {}
     report.texts.push({ file: p.file, lines, ok: r.ok });
     onEvent("text", p.file, lines);
     const im = await run("pdfimages", ["-png", path.join(root, p.file), path.join(img, stem + "-img")]);

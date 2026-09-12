@@ -12,16 +12,57 @@ import { verify } from "./verify.mjs";
 import { buildData } from "./databuild.mjs";
 
 const JSON_MARK = (s) => {
-  const m = String(s).match(/===JSON-BEGIN===([\s\S]*?)===JSON-END===/);
-  const raw = (m ? m[1] : s).trim();
-  return JSON.parse(raw);
+  const raw = String(s || "");
+  const m = raw.match(/===JSON-BEGIN===([\s\S]*?)===JSON-END===/);
+  if (m) return JSON.parse(m[1].trim());
+  // fallback: largest balanced {...} block (agents sometimes drop the markers)
+  let best = null;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] !== "{") continue;
+    let depth = 0, inStr = false, esc = false;
+    for (let j = i; j < raw.length; j++) {
+      const c = raw[j];
+      if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; }
+      else if (c === '"') inStr = true;
+      else if (c === "{") depth++;
+      else if (c === "}") { depth--; if (depth === 0) { const cand = raw.slice(i, j + 1); if (!best || cand.length > best.length) best = cand; break; } }
+    }
+  }
+  if (best) return JSON.parse(best);
+  throw new Error("no parseable JSON (preview: " + raw.slice(0, 120).replace(/\n/g, " ") + ")");
 };
-async function agent(oc, root, stage, prompt, timeoutMs = 300000) {
+// run agent call, parse JSON, one repair round if the output wasn't parseable
+async function jsonCall(oc, root, stage, prompt, timeoutMs = 420000) {
+  const out1 = await agent(oc, root, stage, prompt, timeoutMs);
+  try { return { data: JSON_MARK(out1), repaired: false }; }
+  catch (e) {
+    const out2 = await agent(oc, root, stage + "-repair",
+      "Your last reply was NOT parseable JSON (" + String(e.message).slice(0, 150) + "). " +
+      "Re-emit ONLY the JSON document between ===JSON-BEGIN=== and ===JSON-END=== markers — no prose before, inside, or after. " +
+      "Your previous reply for reference:\n" + String(out1).slice(0, 6000), timeoutMs);
+    return { data: JSON_MARK(out2), repaired: true };
+  }
+}
+async function agent(oc, root, stage, prompt, timeoutMs = 300000, retries = 3) {
   await ledgerAppend(root, { stage, prompt: prompt.slice(0, 500) });
-  const r = await runOpencode(oc.bin, { model: oc.model, dir: root, prompt, timeoutMs });
-  await ledgerAppend(root, { stage, ok: r.ok, outLen: (r.out || "").length });
-  if (!r.ok) throw new Error(stage + " opencode call failed: " + r.error);
-  return r.out;
+  let last = null;
+  for (let a = 1; a <= retries; a++) {
+    const r = await runOpencode(oc.bin, { model: oc.model, dir: root, prompt, timeoutMs });
+    await ledgerAppend(root, { stage, attempt: a, ok: r.ok, outLen: (r.out || "").length });
+    if (r.ok) return r.out;
+    last = r.error || "unknown";
+    if (/auth|login|unauthorized|forbidden/i.test(last))
+      throw new Error(stage + " needs auth: run `opencode auth login`. Detail: " + last.slice(0, 200));
+    onEventLog(root, stage, a, last);
+    if (a < retries) await new Promise((res) => setTimeout(res, [0, 10000, 30000, 60000][a] || 60000));
+  }
+  throw new Error(stage + " opencode call failed after " + retries + " attempts: " + String(last).slice(0, 300));
+}
+function onEventLog(root, stage, attempt, err) {
+  try {
+    fs.appendFileSync(path.join(root, ".dashy", "build-events.log"),
+      new Date().toISOString() + ` [${stage}] attempt ${attempt} failed: ${String(err).slice(0, 200)}\n`);
+  } catch {}
 }
 function formulaDensity(text) {
   const eq = (text.match(/=|≤|≥|→|⇒|∑|∫/g) || []).length;
@@ -34,10 +75,12 @@ function resolveHandout(root, manifest, spec) {
   const parts = [];
   for (const n of names.slice(0, 3)) {
     const base = String(n).split("/").pop();
+    const stem = base.replace(/\.(docx?|txt|md|pdf|pptx?)$/i, "");
+    // extracted text FIRST; raw root file only if it is itself text (never binary .docx/.pdf/.pptx)
     const cand = [
-      path.join(root, base),
-      path.join(root, ".dashy", "txt", "doc-" + base.replace(/\.(docx?|txt|md|pdf)$/i, "") + ".txt"),
-      path.join(root, ".dashy", "txt", base.replace(/\.(pdf|pptx?)$/i, "") + ".txt"),
+      path.join(root, ".dashy", "txt", "doc-" + stem + ".txt"),
+      path.join(root, ".dashy", "txt", stem + ".txt"),
+      ...(/\.(txt|md)$/i.test(base) ? [path.join(root, base)] : []),
     ];
     for (const f of cand) {
       try { const t = fs.readFileSync(f, "utf8"); if (t.trim().length > 50) { parts.push(t.slice(0, 6000)); break; } } catch {}
@@ -46,6 +89,23 @@ function resolveHandout(root, manifest, spec) {
   return parts.join("\n\n---\n\n").slice(0, 12000);
 }
 
+export async function renderGaps(root, mm, onEvent = () => {}) {
+  let budget = 60;
+  for (const g of ((mm || {}).gaps || [])) {
+    if (budget <= 0) break;
+    const m = String(g.pages || "").match(/(\d+)\s*[-–]\s*(\d+)/);
+    if (!m) continue;
+    const base = String(g.pdf || "").split("/").pop().replace(/\.(pdf|pptx?)$/i, "");
+    if (!base) continue;
+    const pages = [];
+    for (let p = +m[1]; p <= +m[2] && budget > 0; p++, budget--) pages.push(p);
+    if (!pages.length) continue;
+    try {
+      const made = await renderPages(root, g.pdf, pages, base + "-gap");
+      onEvent(`gap ${base} p${pages[0]}-${pages[pages.length - 1]}: ${made.length} renders`);
+    } catch (e) { onEvent(`gap render failed for ${base}: ${String(e.message || e).slice(0, 120)}`); }
+  }
+}
 export async function build(root, opts = {}, onEvent = () => {}) {
   const st = loadState(root);
   const spec = { ...(st.spec || {}), ...(opts.spec || {}) };
@@ -102,8 +162,7 @@ ${resolveHandout(root, manifest, spec) ? "HANDOUT CONTEXT:\n" + resolveHandout(r
 ${spec.extra ? "USER EXTRA REQUESTS:\n" + String(spec.extra).slice(0, 2000) : ""}
 Return ONLY JSON between ===JSON-BEGIN=== and ===JSON-END=== with keys: paper, meta{nature,weightage,duration,date}, questions[{q,marks,topic,style}], weightage[{topic,marks,pct}], takeaways[5], at_risk[].
 No invented URLs. Be concise.`;
-    const out = await agent(oc, root, "S4", prompt);
-    const ep = JSON_MARK(out);
+    const { data: ep } = await jsonCall(oc, root, "S4", prompt);
     fs.mkdirSync(path.join(root, ".dashy", "content"), { recursive: true });
     fs.writeFileSync(path.join(root, ".dashy", "content", "exam-pattern.json"), JSON.stringify(ep, null, 2));
     markStage(root, "S4", "done", { questions: (ep.questions || []).length });
@@ -171,13 +230,28 @@ SLIDE TEXT:\n${dump.slice(0, 14000)}`;
     markStage(root, "S5", "done", { lectures: pdfs.length });
   }
 
-  // S6 media: image-map JSON + video JSON (verified by the agent via webfetch/oembed)
+  // S6 media: image-map JSON + video JSON (verified by the agent via webfetch/oembed).
+  // Self-healing first: reconvert any missing pdf/<stem>.pdf (user may have deleted pdf/).
   if (!done("S6")) {
+    const { convertSlides } = await import("./extract.mjs");
+    const slides = (manifest.pdfs || []).filter((p) => p.kind === "slides");
+    if (slides.length) await convertSlides(root, slides, (k, f) => onEvent("S6", k + " " + f));
     const stems = manifest.pdfs.map((p) => p.file.replace(/\.(pdf|pptx?)$/i, ""));
+    // curated image list: prefer larger files, spread across stems, cap 40 (agents drown past that)
     const imgList = [];
     try {
-      fs.readdirSync(path.join(root, ".dashy", "img")).filter((f) => f.endsWith(".png")).slice(0, 120)
-        .forEach((f) => imgList.push(f));
+      const byStem = {};
+      fs.readdirSync(path.join(root, ".dashy", "img")).filter((f) => /\.(png|jpe?g)$/i.test(f)).forEach((f) => {
+        try {
+          const sz = fs.statSync(path.join(root, ".dashy", "img", f)).size;
+          if (sz < 8000) return;
+          const stem = stems.find((s) => f.startsWith(s + "-img")) || "misc";
+          (byStem[stem] = byStem[stem] || []).push({ f, sz });
+        } catch {}
+      });
+      Object.values(byStem).forEach((arr) => arr.sort((a, b) => b.sz - a.sz).slice(0, 6).forEach((x) => imgList.push(x.f)));
+      imgList.sort();
+      while (imgList.length > 40) imgList.pop();
     } catch {}
     const prompt = `Two mapping jobs for lectures [${stems.join(", ")}]. Available extracted images:\n${imgList.join("\n") || "(none)"}\n` +
       `NOTE: slide decks (.ppt/.pptx) were converted to PDF at pdf/<STEM>.pdf — cite those converted paths (never the .pptx) for gap screenshots.\n` +
@@ -185,19 +259,14 @@ SLIDE TEXT:\n${dump.slice(0, 14000)}`;
       `JOB 1 (images): for every ### topic in .dashy/content/*.md assign 0-3 existing PNGs (JSON {"<exact heading>": [{"file":..,"caption":"<=12 words"}]}). List topics with zero suitable images as gaps with exact PDF+pages to screenshot.\n` +
       `JOB 2 (videos): websearch ~3 major topics per lecture for the best YouTube explainers; verify each watch URL exists (fetch it); return {"videos": [{"lecture","topic":"exact ### heading","videoId":"11 chars","title","channel","why":"<=10 words"}], "skipped":[...]}. NEVER invent IDs; skip rather than fill mediocrity.\n` +
       `Return ONLY JSON between ===JSON-BEGIN=== and ===JSON-END===: {"images": {...}, "gaps": [...], "videos": [...], "skipped": [...]}`;
-    const out = await agent(oc, root, "S6", prompt, 420000);
-    const mm = JSON_MARK(out);
+    const { data: mm } = await jsonCall(oc, root, "S6", prompt, 420000);
+    mm.images = mm.images && typeof mm.images === "object" ? mm.images : {};
+    mm.gaps = Array.isArray(mm.gaps) ? mm.gaps : [];
+    mm.videos = Array.isArray(mm.videos) ? mm.videos : [];
+    mm.skipped = Array.isArray(mm.skipped) ? mm.skipped : [];
     fs.writeFileSync(path.join(root, ".dashy", "media-map.json"), JSON.stringify(mm, null, 2));
     // render gap pages the agent requested (bounded: first 60 pages total)
-    let budget = 60;
-    for (const g of (mm.gaps || [])) {
-      if (budget <= 0) break;
-      const m = String(g.pages || "").match(/(\d+)\s*[-–]\s*(\d+)/);
-      if (!m) continue;
-      const pages = [];
-      for (let p = +m[1]; p <= +m[2] && budget > 0; p++, budget--) pages.push(p);
-      if (pages.length) await renderPages(root, g.pdf, pages, g.lecture + "-gap");
-    }
+    await renderGaps(root, mm, (msg) => onEvent("S6", msg));
     markStage(root, "S6", "done", { videos: (mm.videos || []).length });
   }
   onEvent("S6", "media map");

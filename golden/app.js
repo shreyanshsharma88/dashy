@@ -128,7 +128,10 @@ function wireQuiz(L){
 
 /* ---------- per-lecture flashcards (unchanged) ---------- */
 function renderFlash(L){
+  if(!L.flashcards||!L.flashcards.length)
+    return '<h2>Flashcards</h2><p class="src">No flashcards for this lecture yet.</p>';
   if(!(L.id in flashIdx)) flashIdx[L.id]=0;
+  flashIdx[L.id]=Math.min(Math.max(flashIdx[L.id],0),L.flashcards.length-1);
   var i=flashIdx[L.id],c=L.flashcards[i];
   return '<h2>Flashcards ('+L.flashcards.length+', click to flip)</h2>'+
     '<div class="flash" id="flash-card"><b>'+esc(c.front)+'</b><small>click to reveal answer</small></div>'+
@@ -197,6 +200,17 @@ function structureLecture(L){
     } else if(n.tagName==="H2"){
       sec=null; inSources=/sources|todo/i.test(n.textContent);
       if(/worked exam/i.test(n.textContent))n.classList.add("worked-sec");
+      // raw Self-check / Flashcards MD sections duplicate the widgets below — hide when widgets exist
+      if(/self.check|flashcards/i.test(n.textContent)&&(L.quizzes.length||L.flashcards.length)){
+        n.style.display="none";
+        var sib=n.nextSibling;
+        while(sib){
+          var nx=sib.nextSibling;
+          if(sib.tagName==="H2")break;
+          if(sib.nodeType===1)sib.style.display="none";
+          sib=nx;
+        }
+      }
       if(inSources){
         var d=document.createElement("details"); d.className="card"; d.open=false;
         var sm=document.createElement("summary"); sm.textContent=n.textContent; d.appendChild(sm);
@@ -295,8 +309,15 @@ function buildTOC(matched){
 /* ---------- diagrams (existing data) ---------- */
 /* ---------- diagrams + per-topic media (filenames/IDs from media.js) ---------- */
 function allDiags(){ return (DATA.diagrams||[]).concat(((window.ACI_MEDIA||{}).newDiagrams||[])); }
-function mediaFor(tname){ var M=window.ACI_MEDIA||{images:{},videos:{}};
-  return {imgs:(M.images[tname]||[]), vid:(M.videos[tname]||null)}; }
+function normKey(s){ return String(s||"").toLowerCase().replace(/\\/g,"").replace(/[`*_#>\[\]()]/g,"").replace(/\s+/g," ").trim(); }
+function mediaFor(tname){
+  var M=window.ACI_MEDIA||{images:{},videos:{}};
+  if(M.images[tname]||M.videos[tname]) return {imgs:(M.images[tname]||[]), vid:(M.videos[tname]||null)};
+  var nk=normKey(tname), out={imgs:[],vid:null}, k;
+  for(k in M.images){ if(normKey(k)===nk){ out.imgs=M.images[k]; break; } }
+  for(k in M.videos){ if(normKey(k)===nk){ out.vid=M.videos[k]; break; } }
+  return out;
+}
 function diagCount(lid){ return allDiags().filter(function(d){return d.lecture===lid;}).length; }
 function mediaBlock(t){
   var med=mediaFor(t.name);
@@ -445,11 +466,11 @@ function pdfShow(){ var w=document.getElementById("pdfwin"); w.hidden=false;
   if(pdfW.w>0)w.style.width=pdfW.w+"px"; if(pdfW.h>0)w.style.height=pdfW.h+"px"; }
 function pdfHide(){ document.getElementById("pdfwin").hidden=true;
   document.body.classList.remove("pdfwin"); }
-function pdfSrc(lid,page){ return "../"+lid+".pdf#page="+page; }
+function pdfSrc(lid,page){ return "pdf/"+lid+".pdf#page="+page; }
 function pdfLoad(lid,page){
   document.getElementById("pdf-title").textContent=lid+".pdf";
   document.getElementById("pdf-page").textContent="p. "+page;
-  var link="../"+lid+".pdf"; document.getElementById("pdf-link").href=link;
+  var link="pdf/"+lid+".pdf"; document.getElementById("pdf-link").href=link;
   document.getElementById("pdf-open").onclick=function(){ window.open(link,"_blank"); };
   var s=pdfSrc(lid,page);
   if(s!==pdfCur){ pdfCur=s; document.getElementById("pdf-frame").src=s; }
