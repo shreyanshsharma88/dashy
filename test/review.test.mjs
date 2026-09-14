@@ -150,9 +150,31 @@ test("verify: zero videos passes, malformed IDs and option-less MCQs fail", asyn
 test("golden template: no hardcoded subject strings remain", () => {
   const app = fs.readFileSync(path.join(ROOT, "golden", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(ROOT, "golden", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(ROOT, "golden", "styles.css"), "utf8");
   for (const s of ["ZG557", "s4dge", "8000/dashboard", "NEAT/CoDeepNEAT", "all 7 lectures",
     "admissible"]) {
     assert.ok(!app.includes(s) && !html.includes(s), "hardcoded subject string remains: " + s);
   }
   assert.ok(!/id="lec-diags"[ >]/.test(app) || app.includes('id="lec-diags-panel"'));
+});
+
+test("golden a11y: focus ring, live regions, named controls, no div-flashcards", () => {
+  const app = fs.readFileSync(path.join(ROOT, "golden", "app.js"), "utf8");
+  const html = fs.readFileSync(path.join(ROOT, "golden", "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(ROOT, "golden", "styles.css"), "utf8");
+  assert.ok(/:focus-visible\s*\{[^}]*outline/.test(css), "global :focus-visible outline rule");
+  assert.ok(!/scroll-behavior:\s*smooth/.test(css.replace(/@media\s*\(prefers-reduced-motion:[^)]*\)\s*\{[^}]*\}/g, "")),
+    "smooth scroll must be gated behind prefers-reduced-motion");
+  assert.ok(css.includes(".sr-only"), "sr-only helper for live regions");
+  assert.ok(html.includes('role="status"'), "polite live region in shell");
+  assert.ok(html.includes("skip-link"), "skip link in shell");
+  for (const id of ["btn-theme", "btn-focus", "btn-pdf", "btn-timer"]) {
+    assert.ok(new RegExp('id="' + id + '"[^>]*aria-label').test(html), id + " needs an accessible name");
+    assert.ok(new RegExp('id="' + id + '"[^>]*aria-pressed').test(html), id + " needs aria-pressed");
+  }
+  assert.ok(!/class="flash" id="(flash-card|gcard)"><b>/.test(app), "flashcards must be real buttons");
+  assert.ok(app.includes('aria-pressed'), "flashcard pressed state announced");
+  assert.ok(app.includes('<label for="qa'), "quiz answers need visible labels");
+  assert.ok(app.includes('id="sr-status"') || app.includes("srSay"), "route changes announced");
+  assert.ok(app.includes("focusView") || app.includes('tabindex","-1"'), "route focus management");
 });

@@ -22,7 +22,8 @@ var spyObs=null;
 function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function lectureById(id){ for(var i=0;i<DATA.lectures.length;i++) if(DATA.lectures[i].id===id) return DATA.lectures[i]; return null; }
 function lecIdx(id){ for(var i=0;i<DATA.lectures.length;i++) if(DATA.lectures[i].id===id) return i; return -1; }
-function brandTitle(){ var m=(DATA.meta||{}).subject; return m?String(m):"Study"; }
+function brandTitle(){ var m=(DATA.meta||{}).subject; var s=m?String(m):"Study";
+  return s.charAt(0).toUpperCase()+s.slice(1); }
 function atRiskList(){ var r=DATA.atRisk; return Array.isArray(r)?r:[]; }
 function minsOf(L){ var w=(L.text||"").split(/\s+/).length; return Math.max(1,Math.round(w/200)); }
 function shortTitle(L){ try{ return L.title.split("—")[1].split("(")[0].trim(); }catch(e){ return L.title; } }
@@ -39,7 +40,7 @@ function applyFocus(){ document.body.classList.toggle("focus",!!focusMode);
 function renderNav(){
   var nav=document.getElementById("nav");
   var items=[{r:"home",t:"Home"}]
-    .concat(DATA.lectures.map(function(l){ return {r:l.id,t:"<span>"+l.id+" — "+esc(shortTitle(l))+"</span><span class='rt'>"+minsOf(l)+" min</span>"}; }))
+    .concat(DATA.lectures.map(function(l){ return {r:l.id,t:"<span class=\"nl\" title=\""+l.id+" — "+esc(shortTitle(l))+"\">"+l.id+" — "+esc(shortTitle(l))+"</span><span class='rt'>"+minsOf(l)+" min</span>"}; }))
     .concat([{r:"review",t:"Review Queue"},{r:"cards",t:"Flashcards"},{r:"gallery",t:"Diagrams ("+(allDiags().length)+")"},{r:"cheat",t:"Cheat sheet (print)"},{r:"pattern",t:"Previous-year pattern"}]);
   nav.innerHTML=items.map(function(it){ return '<button data-r="'+it.r+'" class="'+(route===it.r?"active":"")+'">'+it.t+"</button>"; }).join("");
   nav.querySelectorAll("button").forEach(function(b){ b.onclick=function(){ render(b.getAttribute("data-r")); }; });
@@ -76,7 +77,7 @@ function renderDots(){
   var crumb=L?("Home / "+L.id):({home:"Home",review:"Review",cards:"Flashcards",gallery:"Diagrams",cheat:"Cheat sheet",pattern:"Pattern"}[route]||"Home");
   d.innerHTML='<span class="crumb">'+esc(crumb)+"</span>"+DATA.lectures.map(function(l){
     var c=""; if(route===l.id)c+=" cur"; if(studied[l.id])c+=" done";
-    return '<button data-d="'+l.id+'" class="'+c+'" title="'+l.id+" — "+esc(shortTitle(l))+'">●</button>'; }).join("");
+    return '<button data-d="'+l.id+'" class="'+c+'" title="'+l.id+" — "+esc(shortTitle(l))+'" aria-label="Go to '+l.id+" — "+esc(shortTitle(l))+'">●</button>'; }).join("");
   d.querySelectorAll("button").forEach(function(b){ b.onclick=function(){ render(b.getAttribute("data-d")); }; });
 }
 
@@ -109,11 +110,11 @@ function renderQuiz(L){
   h+=L.quizzes.map(function(q,qi){
     var inner=q.type==="mcq"
       ? q.options.map(function(o){ return '<label><input type="radio" name="q'+qi+'" value="'+esc(o)+'"> '+esc(o)+"</label>"; }).join("")
-      : '<input type="text" id="qa'+qi+'" placeholder="Type key terms — graded on keywords">';
+      : '<label for="qa'+qi+'">Your answer</label><input type="text" id="qa'+qi+'" placeholder="Type key terms — graded on keywords">';
     return '<div class="quiz-q"><b>Q'+(qi+1)+'.</b> <span class="qtype">'+esc(q.type)+"</span> "+esc(q.q)+inner+
-      '<div><button class="btn ghost" data-check="'+qi+'">Check</button> <span class="fb" id="qf'+qi+'"></span></div></div>';
+      '<div><button class="btn ghost" data-check="'+qi+'">Check</button> <span class="fb" id="qf'+qi+'" role="status"></span></div></div>';
   }).join("");
-  return h+'<button class="btn" id="quiz-all">Check all</button> <span id="quiz-total"></span>';
+  return h+'<button class="btn" id="quiz-all">Check all</button> <span id="quiz-total" role="status"></span>';
 }
 function wireQuiz(L){
   function checkOne(qi){ var q=L.quizzes[qi],fb=document.getElementById("qf"+qi),ok=false,msg="";
@@ -131,7 +132,10 @@ function wireQuiz(L){
     scores[L.id]={done:true,ok:ok}; save(LS_SCORES,scores); };
 }
 
-/* ---------- per-lecture flashcards (unchanged) ---------- */
+/* ---------- flashcards: real buttons, keyboard + SR accessible ---------- */
+function flipCard(el,c,flipped){ el.setAttribute("aria-pressed",flipped?"true":"false");
+  el.innerHTML=flipped?esc(c.back)+"<small>click to hide</small>":"<b>"+esc(c.front)+"</b><small>click to reveal answer</small>"; }
+function flashBtn(id,front,hint){ return '<button type="button" class="flash" id="'+id+'" aria-pressed="false"><b>'+front+"</b><small>"+hint+"</small></button>"; }
 function renderFlash(L){
   if(!L.flashcards||!L.flashcards.length)
     return '<h2>Flashcards</h2><p class="src">No flashcards for this lecture yet.</p>';
@@ -139,15 +143,14 @@ function renderFlash(L){
   flashIdx[L.id]=Math.min(Math.max(flashIdx[L.id],0),L.flashcards.length-1);
   var i=flashIdx[L.id],c=L.flashcards[i];
   return '<h2>Flashcards ('+L.flashcards.length+', click to flip)</h2>'+
-    '<div class="flash" id="flash-card"><b>'+esc(c.front)+'</b><small>click to reveal answer</small></div>'+
+    flashBtn("flash-card",esc(c.front),"click to reveal answer")+
     '<p class="flash-nav no-print"><button class="btn ghost" id="fl-prev">◀ Prev</button> '+(i+1)+"/"+L.flashcards.length+
     ' <button class="btn ghost" id="fl-next">Next ▶</button></p>';
 }
 function wireFlash(L){
   var card=document.getElementById("flash-card"); if(!card)return;
   var flipped=false,i=flashIdx[L.id],c=L.flashcards[i];
-  card.onclick=function(){ flipped=!flipped;
-    card.innerHTML=flipped?esc(c.back)+"<small>click to hide</small>":"<b>"+esc(c.front)+"</b><small>click to reveal answer</small>"; };
+  card.onclick=function(){ flipped=!flipped; flipCard(card,c,flipped); };
   document.getElementById("fl-prev").onclick=function(e){ e.stopPropagation(); flashIdx[L.id]=(i-1+L.flashcards.length)%L.flashcards.length; render(route); };
   document.getElementById("fl-next").onclick=function(e){ e.stopPropagation(); flashIdx[L.id]=(i+1)%L.flashcards.length; render(route); };
 }
@@ -414,19 +417,19 @@ function renderCards(){
   var deck=cardDeck();
   if(cardIdx>=deck.length)cardIdx=0;
   var h='<h1>Flashcards</h1><p class="src">Auto-built from formulas/definitions across all '+DATA.lectures.length+' lectures. Weak-only = lectures containing Weak-tagged topics.</p>';
-  h+='<p class="no-print"><select id="cf-lec">'+["All"].concat(DATA.lectures.map(function(l){return l.id;})).map(function(l){
+  h+='<p class="no-print"><label for="cf-lec">Lecture</label> <select id="cf-lec">'+["All"].concat(DATA.lectures.map(function(l){return l.id;})).map(function(l){
     return '<option '+(cardFilter.lec===l?"selected":"")+'>'+l+'</option>'; }).join("")+'</select> '+
     '<label><input type="checkbox" id="cf-weak" '+(cardFilter.weak?"checked":"")+'> Weak-only</label> '+
     '<button class="btn ghost" id="cf-shuf">Shuffle</button></p>';
   if(!deck.length){ v.innerHTML=h+'<div class="card">No cards under this filter.</div>'; wireCardFilters(); return; }
   var c=deck[cardIdx];
-  h+='<div class="flash" id="gcard"><b>['+c.lec+'] '+esc(c.front)+'</b><small>click to reveal ('+(cardIdx+1)+"/"+deck.length+")</small></div>"+
+  h+=flashBtn("gcard","["+c.lec+"] "+esc(c.front),"click to reveal ("+(cardIdx+1)+"/"+deck.length+")")+
     '<p class="flash-nav no-print"><button class="btn ghost" id="gc-prev">◀ Prev</button> '+
     '<button class="btn ghost" id="gc-next">Next ▶</button></p>';
   v.innerHTML=h; wireCardFilters();
   var flipped=false, el=document.getElementById("gcard");
   el.onclick=function(){ flipped=!flipped;
-    el.innerHTML=flipped?esc(c.back)+"<small>click to hide</small>":"<b>["+c.lec+"] "+esc(c.front)+"</b><small>click to reveal ("+(cardIdx+1)+"/"+deck.length+")</small>"; };
+    flipCard(el,{front:"["+c.lec+"] "+c.front,back:c.back},flipped); };
   document.getElementById("gc-prev").onclick=function(e){ e.stopPropagation(); cardIdx=(cardIdx-1+deck.length)%deck.length; renderCards(); };
   document.getElementById("gc-next").onclick=function(e){ e.stopPropagation(); cardIdx=(cardIdx+1)%deck.length; renderCards(); };
 }
@@ -445,12 +448,12 @@ function renderShuffled(){ // renders window._shuf if present
   if(cardIdx>=d.length)cardIdx=0;
   var c=d[cardIdx];
   v.innerHTML='<h1>Flashcards (shuffled)</h1><p class="no-print"><button class="btn ghost" id="cf-back">← Back to filters</button></p>'+
-    '<div class="flash" id="gcard"><b>['+c.lec+'] '+esc(c.front)+'</b><small>click to reveal ('+(cardIdx+1)+"/"+d.length+")</small></div>"+
+    flashBtn("gcard","["+c.lec+"] "+esc(c.front),"click to reveal ("+(cardIdx+1)+"/"+d.length+")")+
     '<p class="flash-nav no-print"><button class="btn ghost" id="gc-prev">◀ Prev</button> <button class="btn ghost" id="gc-next">Next ▶</button></p>';
   document.getElementById("cf-back").onclick=function(){ window._shuf=null; renderCards(); };
   var flipped=false, el=document.getElementById("gcard");
   el.onclick=function(){ flipped=!flipped;
-    el.innerHTML=flipped?esc(c.back)+"<small>click to hide</small>":"<b>["+c.lec+"] "+esc(c.front)+"</b><small>click to reveal ("+(cardIdx+1)+"/"+d.length+")</small>"; };
+    flipCard(el,{front:"["+c.lec+"] "+c.front,back:c.back},flipped); };
   document.getElementById("gc-prev").onclick=function(e){ e.stopPropagation(); cardIdx=(cardIdx-1+d.length)%d.length; renderShuffled(); };
   document.getElementById("gc-next").onclick=function(e){ e.stopPropagation(); cardIdx=(cardIdx+1)%d.length; renderShuffled(); };
 }
@@ -522,10 +525,11 @@ function pdfRoute(){
 document.getElementById("btn-pdf").onclick=function(){
   pdfW.open=!(pdfW.open!==false); save(LS_PDFW,pdfW);
   document.getElementById("btn-pdf").classList.toggle("on",pdfW.open!==false);
+  syncToggles();
   if(pdfW.open!==false)pdfRoute(); else pdfHide(); };
 document.getElementById("pdf-hide").onclick=function(){
   pdfW.open=false; save(LS_PDFW,pdfW);
-  document.getElementById("btn-pdf").classList.remove("on"); pdfHide(); };
+  document.getElementById("btn-pdf").classList.remove("on"); syncToggles(); pdfHide(); };
 if(typeof ResizeObserver!=="undefined"){
   new ResizeObserver(function(es){ var w=document.getElementById("pdfwin"); if(!w||w.hidden)return;
     pdfW.w=Math.round(w.offsetWidth); pdfW.h=Math.round(w.offsetHeight); save(LS_PDFW,pdfW);
@@ -793,6 +797,11 @@ function wireTtsFind(){
 }
 
 /* ---------- router ---------- */
+function routeTitle(r){ var L=lectureById(r);
+  return (L?L.title:({home:"Study session",review:"Review Queue",cards:"Flashcards",gallery:"Diagrams",cheat:"Cheat sheet",pattern:"Previous-year pattern"}[r]||"Study"))+" · "+brandTitle()+" Study Dashboard"; }
+function srSay(msg){ var s=document.getElementById("sr-status"); if(s)s.textContent=msg; }
+function focusView(){ var v=document.getElementById("view"), h=v?v.querySelector("h1"):null;
+  if(h){ if(!h.hasAttribute("tabindex"))h.setAttribute("tabindex","-1"); try{ h.focus({preventScroll:true}); }catch(e){ try{ h.focus(); }catch(_){} } } }
 function goTo(lid,tid){ route=lid; render(route,tid); }
 function render(r,tid){
   if(r)route=r;
@@ -842,6 +851,8 @@ function render(r,tid){
         return; } }
   }
   if(lectureById(route))pdfRoute(); else pdfHide();
+  try{ document.title=routeTitle(route); }catch(e){}
+  focusView(); srSay(routeTitle(route));
   window.scrollTo(0,0);
 }
 
@@ -891,7 +902,8 @@ window.addEventListener("scroll",function(){
 document.addEventListener("keydown",function(e){
   var t=e.target, typing=t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.tagName==="SELECT"||t.isContentEditable);
   if(e.key==="Escape"){ document.getElementById("search-results").hidden=true;
-    document.getElementById("keys-pop").hidden=true; return; }
+    document.getElementById("keys-pop").hidden=true;
+    var tg=document.getElementById("tts-sugg"); if(tg)tg.hidden=true; return; }
   if(typing)return;
   if(e.key==="/"){ e.preventDefault(); document.getElementById("search").focus(); }
   else if(e.key==="?"){ var k=document.getElementById("keys-pop"); k.hidden=!k.hidden; }
@@ -904,9 +916,15 @@ document.addEventListener("keydown",function(e){
 document.getElementById("btn-keys").onclick=function(){ var k=document.getElementById("keys-pop"); k.hidden=!k.hidden; };
 
 /* ---------- topbar controls ---------- */
-document.getElementById("btn-focus").onclick=function(){ focusMode=!focusMode; save(LS_FOCUS,focusMode); applyFocus(); };
+function syncToggles(){ var t=document.getElementById("btn-theme"),f=document.getElementById("btn-focus"),
+  p=document.getElementById("btn-pdf"),m=document.getElementById("btn-timer");
+  if(t)t.setAttribute("aria-pressed",theme!=="dark"?"true":"false");
+  if(f)f.setAttribute("aria-pressed",focusMode?"true":"false");
+  if(p)p.setAttribute("aria-pressed",pdfW.open!==false?"true":"false");
+  if(m)m.setAttribute("aria-pressed",document.getElementById("timer")&&!document.getElementById("timer").hidden?"true":"false"); }
+document.getElementById("btn-focus").onclick=function(){ focusMode=!focusMode; save(LS_FOCUS,focusMode); applyFocus(); syncToggles(); };
 document.getElementById("btn-theme").onclick=function(){
-  theme=theme==="dark"?"sepia":(theme==="sepia"?"light":"dark"); save(LS_THEME,theme); applyTheme(); };
+  theme=theme==="dark"?"sepia":(theme==="sepia"?"light":"dark"); save(LS_THEME,theme); applyTheme(); syncToggles(); };
 document.getElementById("btn-font-inc").onclick=function(){ typeCtl.fs=Math.min(22,typeCtl.fs+1); save(LS_TYPE,typeCtl); applyType(); };
 document.getElementById("btn-font-dec").onclick=function(){ typeCtl.fs=Math.max(15,typeCtl.fs-1); save(LS_TYPE,typeCtl); applyType(); };
 document.getElementById("btn-lh").onclick=function(){
@@ -923,8 +941,8 @@ function tmTick(){ TM.left--;
     else {TM.mode="Focus";TM.left=TM.focusLen;} }
   tmShow(); document.title="("+document.getElementById("tm-time").textContent+") "+brandTitle(); }
 document.getElementById("btn-timer").onclick=function(){ var t=document.getElementById("timer");
-  t.hidden=!t.hidden; if(!t.hidden)tmShow(); };
-document.getElementById("tm-hide").onclick=function(){ document.getElementById("timer").hidden=true; };
+  t.hidden=!t.hidden; if(!t.hidden)tmShow(); syncToggles(); };
+document.getElementById("tm-hide").onclick=function(){ document.getElementById("timer").hidden=true; syncToggles(); };
 document.getElementById("tm-start").onclick=function(){
   TM.run=!TM.run; document.getElementById("tm-start").textContent=TM.run?"Pause":"Start";
   if(TM.run){TM.t=setInterval(tmTick,1000);} else {clearInterval(TM.t);document.title=brandTitle()+" Study Dashboard";} };
@@ -944,5 +962,6 @@ function applyBrand(){ try{
 }catch(e){} }
 applyTheme(); applyType(); applyFocus(); tmShow(); applyBrand();
 document.getElementById("btn-pdf").classList.toggle("on",pdfW.open!==false);
+if(typeof syncToggles==="function")syncToggles();
 render("home");
 })();
