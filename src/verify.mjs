@@ -33,8 +33,9 @@ export async function verify(root, manifest) {
     put("diagram assets resolve (" + files.length + ")", files.length > 0 && missing.length === 0,
       files.length ? missing.slice(0, 5).join(", ") : "no images mapped at all");
     const ids = [...media.matchAll(/"(?:videoId|id)"\s*:\s*"([^"]+)"/g)].map((m) => m[1]);
-    put("video IDs well-formed (" + ids.length + ")", ids.length > 0 && ids.every((i) => /^[A-Za-z0-9_-]{11}$/.test(i)),
-      ids.length ? "" : "no videos mapped at all");
+    // zero videos is a legal outcome (S6 skips rather than fills) — malformed IDs fail
+    put("video IDs well-formed (" + ids.length + ")", ids.every((i) => /^[A-Za-z0-9_-]{11}$/.test(i)),
+      ids.length ? "" : "no videos mapped (allowed: S6 skips rather than fills)");
   } catch (e) { put("media.js audit", false, String(e).slice(0, 120)); }
   // no invented-link patterns: every http URL must be youtube/watch, youtu-nocookie, gstatic fonts, or localhost text
   try {
@@ -56,6 +57,18 @@ export async function verify(root, manifest) {
       put("≥5 self-check Qs/lecture", qmin >= 5, "min=" + qmin + " across " + cj.length + " lectures");
     }
   } catch (e) { put("quiz minimums", false, "content JSONs missing"); }
+  // every MCQ must carry options (parseQuizzes drops option-less MCQs to radio-less widgets)
+  try {
+    const cj = fs.readdirSync(path.join(root, ".dashy", "content")).filter((f) => /^L\d+.*\.json$/i.test(f));
+    const badMcq = [];
+    cj.forEach((f) => {
+      const j = JSON.parse(fs.readFileSync(path.join(root, ".dashy", "content", f), "utf8"));
+      (j.self_check || []).forEach((q, i) => {
+        if (q.type === "mcq" && !(q.options || []).length) badMcq.push(f + "#" + (i + 1));
+      });
+    });
+    put("MCQs have options (" + badMcq.length + " bad)", badMcq.length === 0, badMcq.slice(0, 5).join(", "));
+  } catch (e) { put("MCQ options", false, "content JSONs missing"); }
   // converted PDFs check + shipped dist/pdf/ (PDF window src lives there)
   try {
     const st = JSON.parse(fs.readFileSync(path.join(root, ".dashy", "state.json"), "utf8"));

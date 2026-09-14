@@ -23,10 +23,19 @@ export async function preflight(wantModel) {
   const report = { ok: true, checks: [] };
   const put = (name, ok, detail = "") => { report.checks.push({ name, ok, detail }); if (!ok) report.ok = false; };
   put("node >= 20", Number(process.versions.node.split(".")[0]) >= 20, process.versions.node);
+  // poppler is one text/image backend; pymupdf (python) is an equivalent fallback,
+  // so a missing poppler binary only fails S0 when no python has pymupdf either.
+  let pymupdf = "";
+  for (const b of [process.env.DASHY_PY, "python3", "python"].filter(Boolean)) {
+    const r = await sh(b, ["-c", "import fitz"]);
+    if (r.ok) { pymupdf = b; break; }
+  }
   for (const t of ["pdftotext", "pdfimages", "pdftoppm", "pdfinfo"]) {
     const found = await whichBin(t);
-    put("poppler:" + t, !!found, found || ("install: " + installHint("poppler")));
+    put("poppler:" + t, !!found || !!pymupdf,
+      found || (pymupdf ? "via pymupdf (" + pymupdf + ")" : "install: " + installHint("poppler")));
   }
+  report.pymupdf = pymupdf;
   {
     const found = await whichBin("soffice", WIN_PROGRAMS);
     put("libreoffice (pptx→pdf into pdf/)", true,
@@ -47,11 +56,18 @@ export async function preflight(wantModel) {
   put("model " + model, modelOk, modelOk ? "" : "run `opencode auth login`, then re-check. Raw list:\n" + modelsOut.slice(0, 400));
   report.model = model; report.bin = bin;
   // advisory only: needed iff the folder contains .pptx
-  const pyBins = [process.env.DASHY_PY, os.homedir() + "/.dashy-tools/bin/python", "python3"].filter(Boolean);
+  const pyBins = [process.env.DASHY_PY, os.homedir() + "/.dashy-tools/bin/python"].filter(Boolean);
   let pptx = "";
   for (const b of pyBins) {
+    if (!fs.existsSync(b)) continue;
     const r = await sh(b, ["-c", "import pptx"]);
     if (r.ok) { pptx = b; break; }
+  }
+  if (!pptx) {
+    for (const b of ["python3", "python"]) {
+      const r = await sh(b, ["-c", "import pptx"]);
+      if (r.ok) { pptx = b; break; }
+    }
   }
   report.checks.push({ name: "pptx support (python-pptx)", ok: true,
     detail: pptx ? "via " + pptx : "advisory: .pptx needs it — dashy bootstraps ~/.dashy-tools venv on first use (or set DASHY_PY). LibreOffice (soffice) optional for best fidelity." });

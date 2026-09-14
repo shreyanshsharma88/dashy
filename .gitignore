@@ -4,3 +4,5 @@ node_modules/
 .dashy/
 dist/
 tmp/
+# local subject data (user PDFs + build outputs, never committed)
+data/

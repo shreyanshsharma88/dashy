@@ -3,23 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ZG557 Mid-Sem Study Dashboard</title>
+<title>Study Dashboard</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<a class="skip-link" href="#view">Skip to content</a>
 <div id="read-progress" aria-hidden="true"><span></span></div>
 <header class="topbar">
-  <div class="brand">ZG557 <span>Mid-Sem Dashboard</span></div>
-  <input id="search" type="search" placeholder="Search all lectures — e.g. admissible, ρ, roulette…  ( / )" autocomplete="off" aria-label="Search lectures">
+  <div class="brand"><span id="brand-subject">Study</span> Dashboard</div>
+  <input id="search" type="search" placeholder="Search all lectures…  ( / )" autocomplete="off" aria-label="Search lectures">
   <div class="top-actions">
-    <button id="btn-font-dec" title="Smaller text">A−</button>
-    <button id="btn-font-inc" title="Larger text">A+</button>
-    <button id="btn-lh" title="Cycle line height">LH</button>
-    <button id="btn-theme" title="Theme: dark / sepia / light">◐</button>
-    <button id="btn-focus" title="Focus mode (F)">⛶</button>
-    <button id="btn-pdf" title="Reference PDF window">📄</button>
-    <button id="btn-timer" title="Pomodoro timer">⏱</button>
-    <button id="btn-keys" title="Keyboard shortcuts (?)">?</button>
+    <button id="btn-font-dec" title="Smaller text" aria-label="Smaller text">A−</button>
+    <button id="btn-font-inc" title="Larger text" aria-label="Larger text">A+</button>
+    <button id="btn-lh" title="Cycle line height" aria-label="Cycle line height">LH</button>
+    <button id="btn-theme" title="Theme: dark / sepia / light" aria-label="Change theme" aria-pressed="false">◐</button>
+    <button id="btn-focus" title="Focus mode (F)" aria-label="Toggle focus mode" aria-pressed="false">⛶</button>
+    <button id="btn-pdf" title="Reference PDF window" aria-label="Toggle reference PDF window" aria-pressed="true">📄</button>
+    <button id="btn-timer" title="Pomodoro timer" aria-label="Toggle Pomodoro timer" aria-pressed="false">⏱</button>
+    <button id="btn-keys" title="Keyboard shortcuts (?)" aria-label="Show keyboard shortcuts">?</button>
   </div>
   <div class="progress-wrap"><div id="progress-bar"></div><span id="progress-label"></span></div>
 </header>
@@ -28,7 +29,7 @@
   <div><kbd>←</kbd><kbd>→</kbd> prev / next lecture</div>
   <div><kbd>F</kbd> focus mode &nbsp; <kbd>/</kbd> search &nbsp; <kbd>Esc</kbd> close</div>
 </div>
-<div id="search-results" hidden></div>
+<div id="search-results" hidden role="status"></div>
 <div class="layout">
   <aside id="sidebar">
     <nav id="nav" aria-label="Dashboard pages"></nav>
@@ -43,6 +44,7 @@
   </div>
 </div>
 <nav id="dots" aria-label="Lecture position"></nav>
+<div class="sr-only" role="status" id="sr-status"></div>
 <aside id="pdfwin" hidden aria-label="Reference PDF">
   <div id="pdf-grip" title="Drag to resize"></div>
   <div class="pdf-head"><b id="pdf-title">Reference PDF</b>

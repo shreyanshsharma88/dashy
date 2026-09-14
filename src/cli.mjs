@@ -42,7 +42,9 @@ async function assemble(root) {
   try {
     const st2 = loadState(root);
     const listed = ((st2.manifest || {}).pdfs || []).map((p) => p.file.replace(/\.(pdf|pptx?)$/i, "") + ".pdf");
-    const names = new Set([...listed, ...fs.readdirSync(path.join(root, "pdf")).filter((f) => f.endsWith(".pdf"))]);
+    let extra = [];
+    try { extra = fs.readdirSync(path.join(root, "pdf")).filter((f) => f.endsWith(".pdf")); } catch {}
+    const names = new Set([...listed, ...extra]);
     names.forEach((n) => {
       const src = fs.existsSync(path.join(root, "pdf", n)) ? path.join(root, "pdf", n) : path.join(root, n);
       if (fs.existsSync(src)) fs.copyFileSync(src, path.join(pdfDst, n));
@@ -109,10 +111,10 @@ program.command("scan").description("list PDFs + handout/paper candidates").acti
   const man = await scan(rootOf(c.parent.opts()));
   p.log.info(JSON.stringify(man, null, 1).slice(0, 2000));
 });
-program.command("build").description("full pipeline S0–S10").option("--fresh", "redo all stages").option("--port <n>", "serve port for smoke test", "").action(async (o, c) => {
+program.command("build").description("full pipeline S0–S10").option("--fresh", "redo all stages").option("--model <id>", "opencode model for content stages").action(async (o, c) => {
   const root = rootOf(c.parent.opts());
   const s = p.spinner(); s.start("dashy build");
-  try { await doBuild(root, {}, !!o.fresh); s.stop("done"); }
+  try { await doBuild(root, { model: o.model }, !!o.fresh); s.stop("done"); }
   catch (e) { s.stop("failed"); p.log.error(String(e.message || e).slice(0, 600)); }
 });
 program.command("bootstrap").description("auto-install opencode (+auth/model check) and Wispr guidance").option("--yes", "non-interactive: allow installs").option("--model <id>", "required model").action(async (o) => {
