@@ -23,10 +23,19 @@ export async function preflight(wantModel) {
   const report = { ok: true, checks: [] };
   const put = (name, ok, detail = "") => { report.checks.push({ name, ok, detail }); if (!ok) report.ok = false; };
   put("node >= 20", Number(process.versions.node.split(".")[0]) >= 20, process.versions.node);
+  // poppler is one text/image backend; pymupdf (python) is an equivalent fallback,
+  // so a missing poppler binary only fails S0 when no python has pymupdf either.
+  let pymupdf = "";
+  for (const b of [process.env.DASHY_PY, "python3", "python"].filter(Boolean)) {
+    const r = await sh(b, ["-c", "import fitz"]);
+    if (r.ok) { pymupdf = b; break; }
+  }
   for (const t of ["pdftotext", "pdfimages", "pdftoppm", "pdfinfo"]) {
     const found = await whichBin(t);
-    put("poppler:" + t, !!found, found || ("install: " + installHint("poppler")));
+    put("poppler:" + t, !!found || !!pymupdf,
+      found || (pymupdf ? "via pymupdf (" + pymupdf + ")" : "install: " + installHint("poppler")));
   }
+  report.pymupdf = pymupdf;
   {
     const found = await whichBin("soffice", WIN_PROGRAMS);
     put("libreoffice (pptx→pdf into pdf/)", true,

@@ -28,7 +28,8 @@ function dashyPython() {
 }
 let _pptxPy = null; // cached resolved python with pptx (or "" if unavailable)
 // Honest bootstrap: create ~/.dashy-tools venv + pip install on first real need.
-const PY_IMPORTS = { "python-pptx": "pptx", pillow: "PIL", "python-docx": "docx" };
+const PY_IMPORTS = { "python-pptx": "pptx", pillow: "PIL", "python-docx": "docx", pymupdf: "fitz" };
+const PY_PKGS = { "python-pptx": "python-pptx", pillow: "pillow", "python-docx": "python-docx", pymupdf: "pymupdf" };
 async function ensurePy(pkgs, onEvent = () => {}) {
   const mods = pkgs.map((p) => PY_IMPORTS[p] || p);
   const probe = mods.map((m) => "import " + m).join("; ");
@@ -51,7 +52,8 @@ async function ensurePy(pkgs, onEvent = () => {}) {
   const venv = dashyVenvDir();
   let r = await run(launcher[0], [...launcher.slice(1), "-m", "venv", venv], 120000);
   if (!r.ok) return null;
-  r = await run(venvPip(venv), ["install", "--quiet", ...pkgs], 300000);
+  const pipPkgs = pkgs.map((p) => PY_PKGS[p] || p);
+  r = await run(venvPip(venv), ["install", "--quiet", ...pipPkgs], 300000);
   const py = venvPython(venv);
   const vok = pkgs.map((p) => PY_IMPORTS[p] || p);
   const ok = r.ok && fs.existsSync(py) && (await run(py, ["-c", vok.map((m) => "import " + m).join("; ")])).ok;
@@ -165,6 +167,28 @@ export async function extract(root, manifest, onEvent = () => {}) {
       continue;
     }
     const txt = path.join(out, stem + ".txt");
+    let pdfOk = false, pdfPages = null;
+    // Prefer PyMuPDF when poppler is absent (mac without brew poppler): text + images in one pass.
+    const mypy = await ensurePy(["pymupdf"], onEvent);
+    if (mypy) {
+      const mr = await run(mypy, [path.join(HERE, "..", "tools", "pdf_extract.py"),
+        path.join(root, p.file), txt, path.join(img, stem)], 180000);
+      try {
+        const info = JSON.parse(mr.out);
+        pdfPages = info.pages || null;
+        if (mr.ok && fs.existsSync(txt)) {
+          const cleaned = fs.readFileSync(txt, "utf8").replace(/\0/g, "");
+          fs.writeFileSync(txt, cleaned);
+          const lines = cleaned.split("\n").length;
+          try { report.images += fs.readdirSync(img).filter((f) => f.startsWith(stem + "-img")).length; } catch {}
+          report.texts.push({ file: p.file, lines, pages: pdfPages, ok: lines > 5, via: "pymupdf" });
+          onEvent("text", p.file, lines);
+          onEvent("images", p.file, report.images);
+          continue;
+        }
+      } catch {}
+      onEvent("pymupdf-fallback", p.file, "trying poppler");
+    }
     const r = await run(await tool("pdftotext"), ["-layout", path.join(root, p.file), txt]);
     let lines = 0;
     try {
