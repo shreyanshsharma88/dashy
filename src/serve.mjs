@@ -10,11 +10,16 @@ const MIME = { ".html": "text/html", ".css": "text/css", ".js": "application/jav
 export function serve(root, port, distDir = "dist") {
   const base = path.join(root, distDir);
   const handler = (req, res) => {
-    let p = decodeURIComponent(req.url.split("?")[0]);
+    let p;
+    try {
+      p = decodeURIComponent(req.url.split("?")[0]);
+    } catch {
+      res.writeHead(400); res.end("bad request"); return;
+    }
     if (p === "/") p = "/index.html";
     if (p.endsWith("/")) p += "index.html";
     const fp = path.normalize(path.join(base, p));
-    if (!fp.startsWith(base)) { res.writeHead(403); res.end("forbidden"); return; }
+    if (fp !== base && !fp.startsWith(base + path.sep)) { res.writeHead(403); res.end("forbidden"); return; }
     fs.readFile(fp, (e, data) => {
       if (e) { res.writeHead(404); res.end("not found"); return; }
       res.writeHead(200, { "Content-Type": MIME[path.extname(fp).toLowerCase()] || "application/octet-stream" });

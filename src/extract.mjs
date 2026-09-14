@@ -31,10 +31,18 @@ let _pptxPy = null; // cached resolved python with pptx (or "" if unavailable)
 const PY_IMPORTS = { "python-pptx": "pptx", pillow: "PIL", "python-docx": "docx" };
 async function ensurePy(pkgs, onEvent = () => {}) {
   const mods = pkgs.map((p) => PY_IMPORTS[p] || p);
-  const cands = [process.env.DASHY_PY, venvPython(dashyVenvDir()), "python3", "python"].filter(Boolean);
+  const probe = mods.map((m) => "import " + m).join("; ");
+  const cands = [process.env.DASHY_PY, venvPython(dashyVenvDir())].filter(Boolean);
   for (const b of cands) {
-    if (!b || !fs.existsSync(b)) continue;
-    const r = await run(b, ["-c", mods.map((m) => "import " + m).join("; ")]);
+    if (!fs.existsSync(b)) continue;
+    const r = await run(b, ["-c", probe]);
+    if (r.ok) return b;
+  }
+  // bare names live on PATH, not the fs: probe them via --version + import
+  for (const b of ["python3", "python"]) {
+    const v = await run(b, ["--version"], 15000);
+    if (!v.ok) continue;
+    const r = await run(b, ["-c", probe], 15000);
     if (r.ok) return b;
   }
   onEvent("py-bootstrap", "creating venv + installing " + pkgs.join(" ") + " (one-time)");
@@ -145,7 +153,7 @@ export async function extract(root, manifest, onEvent = () => {}) {
         continue;
       }
       const r = await run(fpy, [path.join(HERE, "..", "tools", "pptx_extract.py"),
-        path.join(root, p.file), path.join(out, stem)]);
+        path.join(root, p.file), path.join(img, stem)]);
       let info = {};
       try { info = JSON.parse(r.out); } catch {}
       const ok = r.ok && info.slides > 0;

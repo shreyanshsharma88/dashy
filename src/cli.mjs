@@ -109,7 +109,7 @@ program.command("scan").description("list PDFs + handout/paper candidates").acti
   const man = await scan(rootOf(c.parent.opts()));
   p.log.info(JSON.stringify(man, null, 1).slice(0, 2000));
 });
-program.command("build").description("full pipeline S0–S10").option("--fresh", "redo all stages").option("--port <n>", "serve port for smoke test", "").action(async (o, c) => {
+program.command("build").description("full pipeline S0–S10").option("--fresh", "redo all stages").action(async (o, c) => {
   const root = rootOf(c.parent.opts());
   const s = p.spinner(); s.start("dashy build");
   try { await doBuild(root, {}, !!o.fresh); s.stop("done"); }

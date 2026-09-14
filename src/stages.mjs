@@ -93,15 +93,29 @@ export async function renderGaps(root, mm, onEvent = () => {}) {
   let budget = 60;
   for (const g of ((mm || {}).gaps || [])) {
     if (budget <= 0) break;
-    const m = String(g.pages || "").match(/(\d+)\s*[-–]\s*(\d+)/);
-    if (!m) continue;
-    const base = String(g.pdf || "").split("/").pop().replace(/\.(pdf|pptx?)$/i, "");
-    if (!base) continue;
-    const pages = [];
-    for (let p = +m[1]; p <= +m[2] && budget > 0; p++, budget--) pages.push(p);
+    // accept ranges ("12-15"), single pages ("12", "p.12"), or arrays ([12, 13])
+    const raw = g.pages;
+    const nums = Array.isArray(raw) ? raw.flatMap((x) => String(x).match(/\d+/g) || [])
+      : String(raw || "").match(/\d+/g) || [];
+    if (!nums.length) { onEvent(`gap skipped (no parseable pages): ${JSON.stringify(raw || "").slice(0, 60)}`); continue; }
+    let pages = [];
+    if (nums.length >= 2 && /[-–]/.test(String(raw))) {
+      for (let p = +nums[0]; p <= +nums[1] && budget > 0; p++, budget--) pages.push(p);
+    } else {
+      for (const n of nums) { if (budget <= 0) break; pages.push(+n); budget--; }
+    }
+    // slide decks convert to pdf/<stem>.pdf — resolve the converted path, not the .pptx
+    let pdfRel = String(g.pdf || "");
+    const base = pdfRel.split("/").pop().replace(/\.(pdf|pptx?)$/i, "");
+    if (!base) { onEvent("gap skipped (no pdf): " + JSON.stringify(g).slice(0, 80)); continue; }
+    if (/\.pptx?$/i.test(pdfRel)) {
+      const conv = path.join(root, "pdf", base + ".pdf");
+      if (fs.existsSync(conv)) pdfRel = path.join("pdf", base + ".pdf");
+      else { onEvent(`gap skipped (no converted pdf for ${pdfRel})`); continue; }
+    }
     if (!pages.length) continue;
     try {
-      const made = await renderPages(root, g.pdf, pages, base + "-gap");
+      const made = await renderPages(root, pdfRel, pages, base + "-gap");
       onEvent(`gap ${base} p${pages[0]}-${pages[pages.length - 1]}: ${made.length} renders`);
     } catch (e) { onEvent(`gap render failed for ${base}: ${String(e.message || e).slice(0, 120)}`); }
   }
@@ -117,7 +131,7 @@ export async function build(root, opts = {}, onEvent = () => {}) {
   if (!done("S0")) {
     const rep = await preflight(opts.model);
     if (!rep.ok) throw new Error("Preflight failed:\n" + rep.checks.filter((c) => !c.ok).map((c) => "- " + c.name + ": " + c.detail).join("\n"));
-    markStage(root, "S0", "done", { model: rep.model });
+    markStage(root, "S0", "done", { model: rep.model, bin: rep.bin });
   }
   const oc = { bin: loadState(root).stages.S0?.bin || "opencode", model: loadState(root).stages.S0?.model || opts.model };
   onEvent("S0", "preflight ok (" + oc.model + ")");
@@ -144,8 +158,9 @@ export async function build(root, opts = {}, onEvent = () => {}) {
   }
   onEvent("S2", "extracted");
 
-  // S4 exam analysis (needs papers or handout; else syllabus-inferred, flagged)
-  const papers = [...(spec.papers || []), ...(manifest.paperCandidates || [])].filter((v, i, a) => a.indexOf(v) === i);
+  // S4 exam analysis (only user-confirmed spec.papers count as papers —
+  // filename-guessed paperCandidates are suggestions shown in the wizard).
+  const papers = [...(spec.papers || [])].filter((v, i, a) => a.indexOf(v) === i);
   if (!done("S4")) {
     let paperText = "";
     for (const p of papers.slice(0, 3)) {
@@ -190,6 +205,7 @@ Cover EVERY handout item however minor; mark inference as original-example, neve
 Numbered/bulleted formula lines if the handout names any, else the single line "None named in handout."
 ## Self-check
 5-8 numbered questions tagged [MCQ]/[Short]/[Numerical], each with "*Answer:* ..." and "*Keywords:* a, b" lines.
+MCQ format (mandatory for every [MCQ]): put each option on its own line as "- A. <text>" / "- B. <text>" / "- C. <text>" / "- D. <text>", then "*Answer:* <exact option text>".
 ## Flashcards
 Lines shaped "- <front>? >> <back>" (4-6 cards).
 HANDOUT:\n${handoutText.slice(0, 12000) || "(handout unreadable — build from filenames + general course shape, confidence original-example)"}`,
@@ -202,7 +218,13 @@ HANDOUT:\n${handoutText.slice(0, 12000) || "(handout unreadable — build from f
     for (const p of pdfs) {
       li++;
       const stem = p.file.replace(/\.(pdf|pptx?)$/i, "");
-      const dump = fs.readFileSync(path.join(root, ".dashy", "txt", stem + ".txt"), "utf8");
+      const txtPath = path.join(root, ".dashy", "txt", stem + ".txt");
+      let dump = "";
+      try { dump = fs.readFileSync(txtPath, "utf8"); }
+      catch {
+        onEvent("S5", stem + " skipped: no extracted text (S2 failed for " + p.file + ")");
+        continue;
+      }
       const dense = (densMap[p.file] || 0) > 1.5;
       const prompt = `Write a study file for lecture ${stem} (source: ${p.file}, ${dump.length} chars of slide text below).
 ${dense ? "FORMULA RULE (this subject is formula-dense): every formula-bearing topic MUST have a formula_box plus a fully worked numerical example (every intermediate step), quizzes MUST include numerical-type Qs wherever the slides compute anything, and theory-only topics must say so explicitly. Never invent numbers." : "If the slides contain no formulas/numericals, leave those parts out (do not invent)."}
@@ -219,6 +241,7 @@ Cover EVERY slide item however minor (visual-only slides get confidence TODO-ver
 Numbered/bulleted formula lines, then a bold "**Algorithms**" line followed by pseudocode bullets.
 ## Self-check
 Numbered questions, each tagged [MCQ] or [Short] or [Numerical], each followed by an "*Answer:* ..." line and (for Short/Numerical) a "*Keywords:* a, b, c" line. 5-8 questions.
+MCQ format (mandatory for every [MCQ]): put each option on its own line as "- A. <text>" / "- B. <text>" / "- C. <text>" / "- D. <text>", then "*Answer:* <exact option text>".
 ## Flashcards
 Lines shaped "- <front>? >> <back>" (4-6 cards: term/formula front, definition+one-line usage back).
 SLIDE TEXT:\n${dump.slice(0, 14000)}`;

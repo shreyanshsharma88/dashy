@@ -47,11 +47,18 @@ export async function preflight(wantModel) {
   put("model " + model, modelOk, modelOk ? "" : "run `opencode auth login`, then re-check. Raw list:\n" + modelsOut.slice(0, 400));
   report.model = model; report.bin = bin;
   // advisory only: needed iff the folder contains .pptx
-  const pyBins = [process.env.DASHY_PY, os.homedir() + "/.dashy-tools/bin/python", "python3"].filter(Boolean);
+  const pyBins = [process.env.DASHY_PY, os.homedir() + "/.dashy-tools/bin/python"].filter(Boolean);
   let pptx = "";
   for (const b of pyBins) {
+    if (!fs.existsSync(b)) continue;
     const r = await sh(b, ["-c", "import pptx"]);
     if (r.ok) { pptx = b; break; }
+  }
+  if (!pptx) {
+    for (const b of ["python3", "python"]) {
+      const r = await sh(b, ["-c", "import pptx"]);
+      if (r.ok) { pptx = b; break; }
+    }
   }
   report.checks.push({ name: "pptx support (python-pptx)", ok: true,
     detail: pptx ? "via " + pptx : "advisory: .pptx needs it — dashy bootstraps ~/.dashy-tools venv on first use (or set DASHY_PY). LibreOffice (soffice) optional for best fidelity." });

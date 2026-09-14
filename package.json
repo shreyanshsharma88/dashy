@@ -4,7 +4,7 @@
   "description": "CLI that builds ACI-style study dashboards from a folder of PDFs via local opencode",
   "type": "module",
   "bin": { "dashy": "bin/dashy" },
-  "scripts": { "smoke": "node --check bin/dashy && node --check src/cli.mjs" },
+  "scripts": { "smoke": "node --check bin/dashy && node --check src/cli.mjs && node --check src/stages.mjs && node --check src/databuild.mjs && node --check src/verify.mjs && node --check src/serve.mjs && node --check src/scan.mjs && node --check src/rag.mjs && node --check src/tui.mjs && node --check src/extract.mjs && node --check src/state.mjs && node --check src/opencode.mjs && node --check src/preflight.mjs && node --check src/bootstrap.mjs && node --check src/platform.mjs && node --check golden/app.js && node --test test/*.test.mjs", "test": "node --test test/*.test.mjs" },
   "dependencies": {
     "commander": "^12.1.0",
     "@clack/prompts": "^0.8.2"

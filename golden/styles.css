@@ -72,7 +72,7 @@ kbd{border:1px solid var(--line);border-radius:5px;padding:0 6px;background:var(
 #view h2:first-child{border-top:0;margin-top:0;padding-top:0}
 #view h3{font-size:1.12em;line-height:1.4;margin:0}
 section.topic{margin:0 0 52px;scroll-margin-top:76px}
-#lec-diags{scroll-margin-top:76px}
+#lec-diags-panel{scroll-margin-top:76px}
 .topic-head{display:flex;align-items:baseline;gap:8px;margin:0 0 12px}
 .topic-head h3{flex:1}
 .collapse-btn{border:1px solid var(--line);background:var(--panel);color:var(--mut);border-radius:6px;cursor:pointer;font-size:13px;padding:1px 8px;flex:none}

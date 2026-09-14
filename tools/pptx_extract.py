@@ -30,6 +30,16 @@ def main():
     notes_only = "--notes-only" in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     src, pre = args[0], (args[1] if len(args) > 1 else None)
+    # images always go beside the text dir, never into it: derive the .dashy/img
+    # sibling when the caller passes an -img prefix inside .dashy/txt.
+    img_pre = pre
+    if pre and os.path.basename(os.path.dirname(pre)) == "txt":
+        maybe_img = os.path.join(os.path.dirname(os.path.dirname(pre)), "img", os.path.basename(pre))
+        try:
+            os.makedirs(os.path.dirname(maybe_img), exist_ok=True)
+            img_pre = maybe_img
+        except Exception:
+            img_pre = pre
     prs = Presentation(src)
     seen = set()
     nimg = 0
@@ -46,7 +56,7 @@ def main():
                         seen.add(h)
                         ext = shape.image.ext or "png"
                         nimg += 1
-                        with open("%s-img%d.%s" % (pre, nimg, ext), "wb") as f:
+                        with open("%s-img%d.%s" % (img_pre, nimg, ext), "wb") as f:
                             f.write(shape.image.blob)
             except Exception:
                 pass

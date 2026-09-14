@@ -27,13 +27,18 @@ export async function slashPalette() {
 export async function wizard(root) {
   p.intro("dashy init — study dashboard builder");
   const man = await scan(root);
-  if (!man.pdfs.length) { p.log.error("No PDFs in " + root); return null; }
-  p.log.success(man.pdfs.map((x) => `${x.file} (${x.pages ?? "?"}p)`).join("\n"));
+  man.docs = (man.otherDocs || []).filter((f) => /\.(docx?|txt|md)$/i.test(f));
+  if (!man.pdfs.length && !man.docs.length) { p.log.error("No PDFs, slides, or readable docs in " + root); return null; }
+  if (man.pdfs.length) p.log.success(man.pdfs.map((x) => `${x.file} (${x.pages ?? "?"}p)`).join("\n"));
+  else p.log.warn("No PDFs — handout-only mode: a single Course Overview lecture will be built from the docs below.");
+  if (man.paperCandidates.length && !man.pdfs.some((x) => man.paperCandidates.includes(x.file))) {
+    p.log.info("Filename-guessed question papers (unconfirmed): " + man.paperCandidates.join(", "));
+  }
   const handout = man.handoutCandidates.length
     ? await p.multiselect({ message: "Course handout for context (optional)", options: man.handoutCandidates.map((f) => ({ value: f, label: f })) })
     : [];
   const papers = man.paperCandidates.length
-    ? await p.multiselect({ message: "Question papers (optional — exam pattern comes from these)", options: man.paperCandidates.map((f) => ({ value: f, label: f })) })
+    ? await p.multiselect({ message: "Question papers — confirm which are real papers (Enter to skip, candidates are filename guesses only)", options: man.paperCandidates.map((f) => ({ value: f, label: f })) })
     : [];
   const extra = await p.text({ message: "Additional features you want (free text, Enter to skip)", placeholder: "e.g. light theme default, harder quizzes, no videos" });
   const pre = await preflight();

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 function escH(s) {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 function inlineMd(s) {
   s = escH(s);
@@ -125,8 +125,13 @@ function parseQuizzes(md) {
     if (km) { cur.keywords = km[1].split(",").map((s) => s.trim()).filter(Boolean); continue; }
     let em = ln.match(/^\*?(Explanation|Grading):\*?\s*(.+)$/i);
     if (em) { cur.explanation = em[2].trim(); continue; }
-    let om = ln.match(/^[-*]\s*(?:[A-D][).]\s*)?(.+)$/);
-    if (om && cur.type === "mcq" && cur.options.length < 5 && !cur.answer) cur.options.push(om[1].trim());
+    let om = ln.match(/^[-*]\s*(?:\(?([A-Da-d])[).:]\s+)?(.+)$/);
+    if (om && cur.type === "mcq" && cur.options.length < 5 && !cur.answer) cur.options.push((om[2] || "").trim());
+    // lettered options without bullets ("A. foo" / "(a) foo") and one-per-line options
+    if (!om && cur.type === "mcq" && cur.options.length < 5 && !cur.answer) {
+      const lm = ln.match(/^\(?([A-Da-d])[).:]\s+(.+)$/);
+      if (lm && !/^(Answer|Keywords|Explanation|Grading)\b/i.test(lm[2])) cur.options.push(lm[2].trim());
+    }
   }
   push();
   return out.filter((q) => q.q && q.answer).map((q) => ({
@@ -140,6 +145,7 @@ function parseFlashcards(md) {
   return body.split("\n").map((l) => l.trim().match(/^-\s*(.+?)\s*>>\s*(.+)$/))
     .filter(Boolean).map((x) => ({ front: x[1].trim(), back: x[2].trim() })).slice(0, 8);
 }
+export { parseQuizzes, parseFlashcards, parseFormulas, secBody };
 function parseFormulas(md) {
   const fbody = secBody(md, "formulas");
   if (!fbody) return { formulas: [], algos: [] };
@@ -234,15 +240,19 @@ export async function buildData(root, manifest, spec) {
     if (!key || !(v.videoId || v.id)) continue;
     normVideos[key] = { id: v.videoId || v.id, t: v.title || v.t, ch: v.channel || v.ch, ...v };
   }
-  const dimg = path.join(root, "dist", "assets", "diagrams");
-  const mediaFiles = fs.existsSync(dimg) ? fs.readdirSync(dimg).filter((f) => f.endsWith(".png")).sort() : [];
+  const dimg = path.join(root, ".dashy", "img");
+  // accept png + jpg: matches the S8 copy filter (historically png-only, fixed P0-1)
+  const mediaFiles = fs.existsSync(dimg) ? fs.readdirSync(dimg).filter((f) => /\.(png|jpe?g)$/i.test(f)).sort() : [];
   const newDiagrams = mediaFiles.map((f) => {
-    const m = f.match(/^(L\d+)-.*?(\d{2,3})\.png$/);
+    const m = f.match(/^(L\d+)-.*?(\d{2,3})\.(png|jpe?g)$/i);
     return { file: f, lecture: m ? m[1] : "UNK", kind: "page-render",
       caption: m ? `${m[1]} p.${+m[2]} (PDF screenshot)` : f };
   });
   const mediaJs = "window.ACI_MEDIA = " + JSON.stringify({ images: normImages, videos: normVideos, newDiagrams }, null, 0) + ";";
+  const subject = path.basename((manifest && manifest.root) || root);
+  const atRisk = Array.isArray(ep.at_risk) ? ep.at_risk : [];
   const dataJs = "window.ACI_DATA = " + JSON.stringify({ lectures,
+    meta: { subject, builtAt: new Date().toISOString() }, atRisk,
     examPatternHtml: examHtml(ep), cheatSheetHtml: cheatHtml(cheatGroups) }, null, 0) + ";";
   const dist = path.join(root, "dist");
   fs.mkdirSync(dist, { recursive: true });
